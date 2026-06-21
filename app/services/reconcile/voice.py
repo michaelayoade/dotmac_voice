@@ -79,8 +79,8 @@ def reconcile_voice(db: Session, client, customer_id: str) -> SyncStatus:
                 display_name=""
             )
 
-        # Mark as synced on success
-        domain.sync_status = SyncStatus.synced
+        # Mark status based on extras: drift if extras exist, else synced
+        domain.sync_status = SyncStatus.drift if delta.to_delete else SyncStatus.synced
 
     except ServiceUnavailableError:
         # Mark as error if FusionPBX is unavailable
