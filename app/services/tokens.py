@@ -4,9 +4,15 @@ from jose import jwt
 
 from app.config import settings
 
+_MIN_TTL_SECONDS = 1
+_MAX_TTL_SECONDS = 300
+
 
 def mint_token(subject: str, scope: str, ttl_seconds: int = 60) -> dict:
     """Create an ephemeral SIP/WebRTC token with JWT claims."""
+    # Defense in depth: clamp ttl at service level
+    ttl_seconds = max(_MIN_TTL_SECONDS, min(ttl_seconds, _MAX_TTL_SECONDS))
+
     now = datetime.now(UTC)
     exp_time = now + timedelta(seconds=ttl_seconds)
     claims = {

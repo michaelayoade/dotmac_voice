@@ -29,3 +29,25 @@ def test_tokens_endpoint_rejects_zero_ttl(client):
 def test_tokens_endpoint_rejects_excessive_ttl(client):
     r = client.post("/tokens", json={"subject": "s1", "scope": "queue:support", "ttl_seconds": 99999}, headers=INGRESS)
     assert r.status_code == 422
+
+
+def test_mint_token_clamps_excessive_ttl():
+    """Service-level defense: ttl clamped to max 300 even when called directly."""
+    out = mint_token("s1", "queue:support", 99999)
+    assert out["expires_in"] == 300
+    # Verify the exp claim is also clamped (approximately now + 300)
+    from datetime import datetime, UTC
+    claims = jwt.decode(out["token"], settings.token_signing_key, algorithms=["HS256"])
+    now = int(datetime.now(UTC).timestamp())
+    assert 298 <= claims["exp"] - now <= 302  # Allow 2s tolerance for execution time
+
+
+def test_mint_token_clamps_zero_ttl():
+    """Service-level defense: ttl clamped to min 1 even when called directly."""
+    out = mint_token("s1", "queue:support", 0)
+    assert out["expires_in"] == 1
+    # Verify the exp claim is also clamped (approximately now + 1)
+    from datetime import datetime, UTC
+    claims = jwt.decode(out["token"], settings.token_signing_key, algorithms=["HS256"])
+    now = int(datetime.now(UTC).timestamp())
+    assert 0 <= claims["exp"] - now <= 2  # Allow 1s tolerance for execution time
