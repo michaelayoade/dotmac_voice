@@ -23,6 +23,18 @@ class FusionpbxClient:
             timeout=timeout,
         )
 
+    def close(self) -> None:
+        """Close the HTTP client and release resources."""
+        self._client.close()
+
+    def __enter__(self) -> "FusionpbxClient":
+        """Enter context manager."""
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        """Exit context manager and close the client."""
+        self.close()
+
     def _get(self, path: str) -> dict:
         """Make a GET request.
 

@@ -121,3 +121,13 @@ class TestCreateExtension:
         c = FusionpbxClient("http://fpbx", "k")
         with pytest.raises(ServiceUnavailableError):
             c.create_extension("example.local", "101", "secret123", "Bob")
+
+
+class TestContextManager:
+    """Tests for context manager support."""
+
+    def test_client_context_manager_closes(self):
+        """Test context manager properly closes client."""
+        with FusionpbxClient("http://fpbx", "k") as c:
+            assert c._client.is_closed is False
+        assert c._client.is_closed is True
