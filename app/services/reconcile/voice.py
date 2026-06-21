@@ -1,17 +1,19 @@
 """Voice reconciliation service: delta computation and apply."""
+
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.voice import VoiceDomain, Extension, SyncStatus
+from app.models.voice import Extension, SyncStatus, VoiceDomain
 from app.services.exceptions import NotFoundError, ServiceUnavailableError
 
 
 @dataclass(frozen=True)
 class VoiceDelta:
     """Represents differences between desired and actual extensions."""
+
     to_create: set[str]
     to_delete: set[str]
 
@@ -28,7 +30,7 @@ def compute_delta(desired_numbers: set[str], actual_numbers: set[str]) -> VoiceD
     """
     return VoiceDelta(
         to_create=desired_numbers - actual_numbers,
-        to_delete=actual_numbers - desired_numbers
+        to_delete=actual_numbers - desired_numbers,
     )
 
 
@@ -51,7 +53,9 @@ def reconcile_voice(db: Session, client, customer_id: str) -> SyncStatus:
         NotFoundError: If no VoiceDomain exists for customer_id
     """
     # Fetch domain
-    domain = db.scalar(select(VoiceDomain).where(VoiceDomain.customer_id == customer_id))
+    domain = db.scalar(
+        select(VoiceDomain).where(VoiceDomain.customer_id == customer_id)
+    )
     if not domain:
         raise NotFoundError(f"No voice domain for customer {customer_id}")
 
@@ -73,10 +77,7 @@ def reconcile_voice(db: Session, client, customer_id: str) -> SyncStatus:
         # Create missing extensions (sorted for determinism)
         for number in sorted(delta.to_create):
             client.create_extension(
-                domain.fusionpbx_domain,
-                number,
-                password="",
-                display_name=""
+                domain.fusionpbx_domain, number, password="", display_name=""
             )
 
         # Mark status based on extras: drift if extras exist, else synced

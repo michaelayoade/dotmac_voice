@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.models.file_upload import FileUpload, FileUploadStatus
 from app.services.branding_context import load_branding_context
-from app.services.file_upload import FileUploadService
+from app.services.file_upload import FileUploadService, read_upload_file_limited
 from app.templates import templates
 from app.web.deps import require_web_auth
 
@@ -125,7 +125,7 @@ async def upload_submit(
         return templates.TemplateResponse("admin/file_uploads/upload.html", ctx)
 
     try:
-        content = await uploaded_file.read()
+        content = await read_upload_file_limited(uploaded_file)
         svc = FileUploadService(db)
         svc.upload(
             content=content,

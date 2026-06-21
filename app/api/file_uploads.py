@@ -14,7 +14,11 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db, require_user_auth
 from app.schemas.common import ListResponse
 from app.schemas.file_upload import FileUploadRead
-from app.services.file_upload import FileUploadService, current_person_id
+from app.services.file_upload import (
+    FileUploadService,
+    current_person_id,
+    read_upload_file_limited,
+)
 
 router = APIRouter(
     prefix="/file-uploads",
@@ -41,7 +45,7 @@ async def upload_file(
     auth: dict = Depends(require_user_auth),
     db: Session = Depends(get_db),
 ) -> FileUploadRead:
-    content = await file.read()
+    content = await read_upload_file_limited(file)
     svc = FileUploadService(db)
     record = svc.upload_for_actor(
         actor_id=current_person_id(auth),
