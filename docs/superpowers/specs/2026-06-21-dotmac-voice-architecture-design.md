@@ -173,7 +173,7 @@ FreeSWITCH emits CDR (mod_json_cdr / CHANNEL_HANGUP_COMPLETE)
 
 ### B) sub native app — "Talk to an agent"
 - Backend contract (stack-agnostic): button → sub mints scoped token (`queue:support`, ~60s) via dotmac_voice `/api/tokens` → app opens WebRTC/SIP to Kamailio (WSS) → dials support; in-call UI = mute/hangup/connecting.
-- **OPEN: native app not yet surveyed.** Backend fully specified; the client widget depends on the app's framework (e.g. `react-native-webrtc` / Flutter SIP plugin). Survey the native-app repo before writing that part of the plan.
+- **Native-app finding (surveyed 2026-06-21):** the only native app is `dotmac_field` — a **field-technician/vendor app** (Flutter, Riverpod + Dio + go_router, talks to `crm.dotmac.io`, zero VoIP today). **There is NO customer-facing mobile app**; `dotmac_sub` is web-only. So the customer "Talk to an agent" target is an **open Tier-2 decision**: (1) browser WebRTC in sub's web Phone tab (works today, no app); (2) build a new customer Flutter app (separate project); or (3) the feature is actually field-tech→dispatch calling, in which case `dotmac_field` is the home (`lib/core/sip/` + a `support_call` feature; recommend `flutter_webrtc` + `sip_ua`; needs mic permissions + iOS audio session; FCM/CallKit only if inbound). Backend token contract is unchanged regardless.
 
 ### C) crm agent softphone + voice channel (web — reuses WhatsApp-calling infra)
 - Voice channel: add `voice` to `ChannelType` (`app/models/crm/enums.py`) + enum migration; routing rules already parameterize on channel type.
@@ -230,7 +230,7 @@ FreeSWITCH emits CDR (mod_json_cdr / CHANNEL_HANGUP_COMPLETE)
 ## 10. Open items / dependencies
 
 - Carrier SIP trunk / DID provider (gates PSTN; on-net launch doesn't need it).
-- Survey the **native app** repo before specifying its talk-to-agent widget.
+- **Customer "Talk to an agent" home (Tier-2 decision):** no customer mobile app exists (only `dotmac_field`, agent-facing). Choose: browser WebRTC in sub web selfcare / new customer app / field-tech→dispatch via `dotmac_field`. See §5B.
 - **Splynx sync cleanup in dotmac_sub** — stale `splynx_sync` Celery beat tasks point at the decommissioned host; confirm disabled before layering voice billing on the same `account_id`.
 - Public-IP / DMZ provisioning at the local hosting site for the edge.
 - Secure ingress endpoint (`voice.dotmac.io` or similar) with mTLS/API-key + IP allowlist.
