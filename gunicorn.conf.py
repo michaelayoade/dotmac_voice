@@ -39,7 +39,7 @@ loglevel = os.getenv("GUNICORN_LOGLEVEL", "info")
 access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(D)s'
 
 # ── Process naming ───────────────────────────────────────
-proc_name = "starter_template"
+proc_name = "dotmac_voice"
 
 # ── Proxy headers ────────────────────────────────────────
 # Uvicorn reads FORWARDED_ALLOW_IPS to decide which proxies may set

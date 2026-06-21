@@ -76,7 +76,7 @@ def sanitize_branding_css(css: Any) -> str:
 
 
 def _default_branding() -> dict[str, Any]:
-    name = getattr(settings, "brand_name", "Starter Template")
+    name = getattr(settings, "brand_name", "DotMac Voice")
     return {
         "display_name": name,
         "tagline": getattr(settings, "brand_tagline", "FastAPI starter"),

@@ -43,7 +43,7 @@ def _get_smtp_config() -> dict:
         "use_tls": _env_bool("SMTP_USE_TLS", True),
         "use_ssl": _env_bool("SMTP_USE_SSL", False),
         "from_email": _env_value("SMTP_FROM_EMAIL") or "noreply@example.com",
-        "from_name": _env_value("SMTP_FROM_NAME") or "Starter Template",
+        "from_name": _env_value("SMTP_FROM_NAME") or "DotMac Voice",
     }
 
 

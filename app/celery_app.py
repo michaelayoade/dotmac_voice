@@ -6,7 +6,7 @@ from celery.signals import before_task_publish, task_postrun, task_prerun
 from app.logging import request_id_context, set_log_context
 from app.services.scheduler_config import get_celery_config
 
-celery_app = Celery("starter_template")
+celery_app = Celery("dotmac_voice")
 celery_app.conf.update(get_celery_config())
 celery_app.conf.beat_schedule = {}
 celery_app.conf.beat_scheduler = "app.celery_scheduler.DbScheduler"

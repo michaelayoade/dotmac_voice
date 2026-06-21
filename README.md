@@ -1,4 +1,4 @@
-# Starter Template
+# DotMac Voice
 
 A production-ready FastAPI starter template with enterprise-grade features including authentication, RBAC, audit logging, background jobs, and full observability.
 
@@ -87,7 +87,7 @@ A production-ready FastAPI starter template with enterprise-grade features inclu
 1. **Clone the repository**
    ```bash
    git clone <repository-url>
-   cd starter_template
+   cd dotmac_voice
    ```
 
 2. **Set up environment variables**
@@ -170,7 +170,7 @@ Services:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql+psycopg://postgres:postgres@localhost:5434/starter_template` |
+| `DATABASE_URL` | PostgreSQL connection string | `postgresql+psycopg://postgres:postgres@localhost:5434/dotmac_voice` |
 | `REDIS_URL` | Redis connection string | `redis://:redis@localhost:6379/0` |
 | `CELERY_BROKER_URL` | Celery broker URL | `redis://:redis@localhost:6379/0` |
 | `CELERY_RESULT_BACKEND` | Celery result backend | `redis://:redis@localhost:6379/1` |
@@ -179,11 +179,11 @@ Services:
 | `JWT_ALGORITHM` | JWT algorithm | `HS256` |
 | `JWT_ACCESS_TTL_MINUTES` | Access token TTL | `15` |
 | `JWT_REFRESH_TTL_DAYS` | Refresh token TTL | `30` |
-| `TOTP_ISSUER` | TOTP issuer name | `starter_template` |
+| `TOTP_ISSUER` | TOTP issuer name | `dotmac_voice` |
 | `TOTP_ENCRYPTION_KEY` | TOTP secret encryption key | Required |
 | `TRUSTED_HOSTS` | Comma-separated allowed Host header values for production | Required in production |
 | `OTEL_ENABLED` | Enable OpenTelemetry | `false` |
-| `OTEL_SERVICE_NAME` | Service name for tracing | `starter_template` |
+| `OTEL_SERVICE_NAME` | Service name for tracing | `dotmac_voice` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP collector endpoint | - |
 
 ### OpenBao Integration
@@ -191,7 +191,7 @@ Services:
 Secrets can be resolved from OpenBao by using the `openbao://` prefix:
 
 ```bash
-JWT_SECRET=openbao://secret/data/starter_template#jwt_secret
+JWT_SECRET=openbao://secret/data/dotmac_voice#jwt_secret
 ```
 
 Configure OpenBao connection:

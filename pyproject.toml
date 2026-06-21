@@ -1,7 +1,7 @@
 [tool.poetry]
-name = "starter_template"
+name = "dotmac_voice"
 version = "0.1.0"
-description = "Starter API and web UI template"
+description = "DotMac Voice — FusionPBX/FreeSWITCH control-plane service"
 authors = ["Codex <codex@local>"]
 package-mode = false
 

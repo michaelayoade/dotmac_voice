@@ -154,7 +154,7 @@ def _totp_issuer(db: Session | None) -> str:
     return (
         _env_value("TOTP_ISSUER")
         or _setting_value(db, "totp_issuer")
-        or "starter_template"
+        or "dotmac_voice"
     )
 
 

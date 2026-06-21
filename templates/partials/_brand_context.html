@@ -1,5 +1,5 @@
 {% set brand_data = brand if brand is defined and brand else {} %}
-{% set brand_name = brand_data.name | default(title | default("Starter Template", true), true) %}
+{% set brand_name = brand_data.name | default(title | default("DotMac Voice", true), true) %}
 {% set brand_tagline = brand_data.tagline | default("", true) %}
 {% set brand_logo_url = brand_data.logo_url | default("", true) %}
 {% set brand_logo_dark_url = brand_data.logo_dark_url | default("", true) %}

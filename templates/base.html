@@ -8,7 +8,7 @@
     <meta name="htmx-config" content='{"defaultSwapStyle":"innerHTML","globalViewTransitions":true}' />
     {% set csrf_value = csrf_token if csrf_token is defined else (request.state.csrf_token if request is defined and request.state is defined else "") %}
     <meta name="csrf-token" content="{{ csrf_value | default('', true) }}" />
-    <title>{% block title %}{{ title | default("Starter Template") }}{% endblock %}</title>
+    <title>{% block title %}{{ title | default("DotMac Voice") }}{% endblock %}</title>
 
     <!-- Custom Fonts: Outfit (display) + Plus Jakarta Sans (body) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">

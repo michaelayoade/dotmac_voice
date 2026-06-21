@@ -1,12 +1,12 @@
 services:
   app:
     build: .
-    container_name: starter_template_app
+    container_name: dotmac_voice_app
     restart: unless-stopped
     ports:
       - "8007:8001"
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@db:5432/starter_template}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@db:5432/dotmac_voice}
       REDIS_URL: ${REDIS_URL:-redis://:redis@redis:6379/0}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://:redis@redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://:redis@redis:6379/1}
@@ -21,10 +21,10 @@ services:
 
   worker:
     build: .
-    container_name: starter_template_worker
+    container_name: dotmac_voice_worker
     restart: unless-stopped
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@db:5432/starter_template}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@db:5432/dotmac_voice}
       REDIS_URL: ${REDIS_URL:-redis://:redis@redis:6379/0}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://:redis@redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://:redis@redis:6379/1}
@@ -39,10 +39,10 @@ services:
 
   beat:
     build: .
-    container_name: starter_template_beat
+    container_name: dotmac_voice_beat
     restart: unless-stopped
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@db:5432/starter_template}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@db:5432/dotmac_voice}
       REDIS_URL: ${REDIS_URL:-redis://:redis@redis:6379/0}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://:redis@redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://:redis@redis:6379/1}
@@ -57,16 +57,16 @@ services:
 
   db:
     image: postgres:16
-    container_name: starter_template_db
+    container_name: dotmac_voice_db
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-starter_template}
+      POSTGRES_DB: ${POSTGRES_DB:-dotmac_voice}
     ports:
       - "127.0.0.1:5436:5432"
     volumes:
-      - starter_template_db_data:/var/lib/postgresql/data
+      - dotmac_voice_db_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
@@ -76,7 +76,7 @@ services:
 
   redis:
     image: redis:7
-    container_name: starter_template_redis
+    container_name: dotmac_voice_redis
     restart: unless-stopped
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-redis}
@@ -91,4 +91,4 @@ services:
       start_period: 5s
 
 volumes:
-  starter_template_db_data:
+  dotmac_voice_db_data:

@@ -72,10 +72,10 @@ docker-rebuild: ## Rebuild and restart app container
 	docker compose build app && docker compose up -d app
 
 docker-shell: ## Open shell in app container
-	docker exec -it starter_template_app bash
+	docker exec -it dotmac_voice_app bash
 
 docker-migrate: ## Run migrations inside Docker
-	docker exec starter_template_app alembic upgrade head
+	docker exec dotmac_voice_app alembic upgrade head
 
 # ─── Pre-commit ───────────────────────────────────────────
 

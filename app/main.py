@@ -75,7 +75,7 @@ async def lifespan(app: FastAPI):  # type: ignore[arg-type]
     logger.info("Application shutting down")
 
 
-app = FastAPI(title="Starter Template API", lifespan=lifespan)
+app = FastAPI(title="DotMac Voice API", lifespan=lifespan)
 
 _AUDIT_SETTINGS_CACHE: dict[str, Any] | None = None
 _AUDIT_SETTINGS_CACHE_AT: float | None = None
