@@ -49,8 +49,22 @@ def put_domain(
             select(Extension).where(Extension.voice_domain_id == domain.id)
         )
     }
+
+    # Desired state: replace extensions to match payload exactly
+    payload_numbers = {ext.number for ext in payload.extensions}
+
+    # Delete extensions not in payload
+    for number, ext_obj in existing.items():
+        if number not in payload_numbers:
+            db.delete(ext_obj)
+
+    # Add or update extensions from payload
     for ext in payload.extensions:
-        if ext.number not in existing:
+        if ext.number in existing:
+            # Update display_name for existing extension
+            existing[ext.number].display_name = ext.display_name
+        else:
+            # Add new extension
             db.add(
                 Extension(
                     voice_domain_id=domain.id,
