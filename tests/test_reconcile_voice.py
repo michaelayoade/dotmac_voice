@@ -26,7 +26,7 @@ class _FakeClient:
 def test_reconcile_creates_missing_extension(db_session):
     """Test that reconcile_voice creates missing extensions and sets sync_status."""
     # Create domain
-    dom = VoiceDomain(customer_id="c1", fusionpbx_domain="c1.local")
+    dom = VoiceDomain(customer_id="recon-c1", fusionpbx_domain="recon-c1.local")
     db_session.add(dom)
     db_session.flush()
 
@@ -39,7 +39,7 @@ def test_reconcile_creates_missing_extension(db_session):
 
     # Run reconciliation
     client = _FakeClient()
-    status = reconcile_voice(db_session, client, "c1")
+    status = reconcile_voice(db_session, client, "recon-c1")
 
     # Verify results
     assert "1002" in client.created

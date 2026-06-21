@@ -10,13 +10,13 @@ class _FakeClient:
 def test_put_provisioning_creates_and_syncs(client):
     from app.api.provisioning import get_fusionpbx_client
     client.app.dependency_overrides[get_fusionpbx_client] = lambda: _FakeClient()
-    body = {"fusionpbx_domain": "c1.local", "extensions": [{"number": "1001"}, {"number": "1002"}]}
-    r = client.put("/provisioning/domains/c1", json=body, headers=INGRESS)
+    body = {"fusionpbx_domain": "prov-c1.local", "extensions": [{"number": "1001"}, {"number": "1002"}]}
+    r = client.put("/provisioning/domains/prov-c1", json=body, headers=INGRESS)
     assert r.status_code == 200
     assert r.json()["sync_status"] == "synced"
     client.app.dependency_overrides.pop(get_fusionpbx_client)
 
 
 def test_put_provisioning_requires_key(client):
-    r = client.put("/provisioning/domains/c1", json={"fusionpbx_domain": "c1.local", "extensions": []})
+    r = client.put("/provisioning/domains/prov-c2", json={"fusionpbx_domain": "prov-c2.local", "extensions": []})
     assert r.status_code == 401
