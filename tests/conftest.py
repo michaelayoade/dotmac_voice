@@ -95,6 +95,15 @@ class MockSettings:
         "image/jpeg,image/png,image/gif,image/webp,application/pdf,text/plain,text/csv"
     )
     metrics_token = None
+    fusionpbx_api_url = "http://localhost:8080"
+    fusionpbx_api_key = "test-key"
+    esl_host = "localhost"
+    esl_port = 8021
+    esl_password = "ClueCon"
+    edge_wss_url = "wss://sip.dotmac.io:443"
+    voice_ingress_api_keys = "test-ingress-key"
+    voice_ingress_allowed_ips = ""
+    token_signing_key = "test-token-key"
 
 
 mock_config_module.settings = MockSettings()
@@ -147,6 +156,7 @@ from app.models.billing import (
     WebhookEvent,
     WebhookEventStatus,
 )
+from app.models.voice import VoiceDomain, Extension, SyncStatus  # noqa: F401
 
 # Create all tables
 TestBase.metadata.create_all(_test_engine)

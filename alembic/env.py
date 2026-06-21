@@ -12,6 +12,7 @@ from app.models import (  # noqa: F401
     person,
     rbac,
     scheduler,
+    voice,
 )
 
 config = context.config

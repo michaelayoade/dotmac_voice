@@ -19,7 +19,7 @@ Build voice products on a **locally-hosted FusionPBX/FreeSWITCH**, as tiers on o
 - **Reference architecture now**, implementation decomposed per tier.
 - **Agents are mixed** (in-office + remote) → a hardened public WebRTC edge is mandatory; in-office agents get a lower-RTT LAN path.
 - **Scale: large with headroom** → Kamailio + RTPengine SBC edge from day one, multiple FreeSWITCH media nodes.
-- **PSTN phased** → architect for full PSTN; launch on-net first (in-app talk-to-agent + internal/virtual-PBX calling). Carrier SIP trunk / DID provider is a to-be-procured **Tier-0 dependency**.
+- **PSTN phased** → architect for full PSTN; launch on-net first (in-app talk-to-agent + internal/virtual-PBX calling). Carrier SIP trunk / DID provider is a to-be-procured **PSTN go-live dependency**, not a blocker for the on-net Tier 0 acceptance gate.
 - **FusionPBX integration = Approach A**: provision via FusionPBX REST API; real-time call control + events via FreeSWITCH ESL. FusionPBX stays the admin GUI for techs.
 - **Cloud↔local connectivity = Option 1**: `dotmac_voice` exposes an authenticated **public HTTPS API** (mTLS/API-key + IP allowlist to sub/crm hosts only + edge rate-limit). No VPN. Webhooks are outbound.
 - **`dotmac_voice` is single-tenant**: a customer is a `customer_id`/`fusionpbx_domain` foreign key (data), not an app-level `org_id` scope. Tenancy is handled below it (FusionPBX domains) and beside it (sub accounts).
@@ -222,7 +222,7 @@ FreeSWITCH emits CDR (mod_json_cdr / CHANNEL_HANGUP_COMPLETE)
 
 ## 9. Implementation decomposition (per-tier plans, written separately)
 
-- **Tier 0 — Core & edge:** local FreeSWITCH + FusionPBX; Kamailio + RTPengine + coturn public edge; dotmac_voice skeleton (ESL bridge, FusionPBX client, authenticated ingress); one real on-net call; fraud baseline. *Dependency: carrier SIP trunk + DID for the PSTN slice.*
+- **Tier 0 — Core & edge:** local FreeSWITCH + FusionPBX; Kamailio + RTPengine + coturn public edge; dotmac_voice skeleton (ESL bridge, FusionPBX client, authenticated ingress); one real on-net call; fraud baseline. *Dependency: public edge/DMZ for on-net Tier 0; carrier SIP trunk + DID only for the PSTN slice.*
 - **Tier 1 — Lines + Virtual PBX + billing:** voice service type in sub; `reconcile_voice`; CDR rating → invoice; sub selfcare Phone tab.
 - **Tier 2 — Call center + in-app talk-to-agent:** crm voice channel + softphone + click-to-dial; sub native-app talk-to-agent (after native-app survey).
 - **Later:** CCaaS (multi-tenant agent console), SMS gateway, CPaaS.

@@ -45,13 +45,36 @@
 
 ---
 
-See the full implementation details in the conversation context. The plan covers 5 chunks:
+## Implementation Tasks
 
-1. Foundation: CSP build swap + components.js scaffold (Tasks 1-3)
-2. Admin templates: notificationBell, userMenu, sidebarToggle (Tasks 4-5)
-3. Page templates: index, branding, file uploads (Tasks 6-9)
-4. CSP header hardening + tests (Task 10)
-5. Final verification (Task 11)
+### Task 1: Swap Alpine to the CSP build
+- [ ] Replace `static/js/alpine.min.js` with the `@alpinejs/csp` browser build.
+- [ ] Keep script loading order: `static/js/components.js` first, then deferred `static/js/alpine.min.js`.
+- [ ] Verify every page still initializes Alpine once.
+
+### Task 2: Create `static/js/components.js`
+- [ ] Register `darkMode`, `toastStore`, `demoCounter`, `brandingEditor`, `fileUploadZone`, `fileDropZone`, `sidebarToggle`, `notificationBell`, and `userMenu` with `Alpine.data(...)`.
+- [ ] Register `Alpine.store("dark", ...)` for shared dark-mode state.
+- [ ] Parse server-provided initial values from `data-*` attributes in `init()`.
+
+### Task 3: Remove inline Alpine expressions from templates
+- [ ] Replace complex `x-data`, `x-show`, `:class`, `:style`, and event expressions with component methods/properties.
+- [ ] Target the files listed in the File Map.
+- [ ] Template `x-data` values should be component names or simple calls only.
+
+### Task 4: Move notification bell logic
+- [ ] Move the inline notification bell script from `templates/admin/base.html` into `static/js/components.js`.
+- [ ] Keep existing endpoint URLs and DOM semantics unchanged.
+
+### Task 5: Harden CSP and test it
+- [ ] Update `app/middleware/security_headers.py` to remove `unsafe-eval` and unnecessary CDN script allowlists.
+- [ ] Keep `unsafe-inline` only if server-rendered inline styles/scripts still require it; document the remaining blockers.
+- [ ] Add/adjust `tests/test_security_headers.py` to assert no `unsafe-eval` in `Content-Security-Policy`.
+
+### Task 6: Final verification
+- [ ] Run `poetry run ruff check app tests`.
+- [ ] Run relevant template/static/security tests.
+- [ ] Manually smoke-test dark mode, topbar menu, notification bell, branding editor, and file upload components.
 
 Key CSP build gotchas addressed:
 - All inline expressions (ternaries, comparisons, negations) become methods
