@@ -6,6 +6,7 @@ import logging
 import re
 from uuid import UUID
 
+from fastapi import UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -24,6 +25,7 @@ _DANGEROUS_TEXT_PATTERNS = (
     re.compile(rb"(?is)<\s*(?:!doctype|html|head|body|script|iframe|object|embed)\b"),
     re.compile(rb"(?is)\bjavascript\s*:"),
 )
+_UPLOAD_CHUNK_SIZE = 1024 * 1024
 
 
 def _allowed_types() -> set[str]:
@@ -70,6 +72,24 @@ def _validate_content(content: bytes, declared_type: str) -> str:
         return declared_type
 
     raise BadRequestError("Could not verify uploaded file type")
+
+
+async def read_upload_file_limited(
+    file: UploadFile,
+    *,
+    max_size_bytes: int | None = None,
+) -> bytes:
+    limit = max_size_bytes or settings.upload_max_size_bytes
+    content = bytearray()
+    while True:
+        chunk = await file.read(_UPLOAD_CHUNK_SIZE)
+        if not chunk:
+            break
+        content.extend(chunk)
+        if len(content) > limit:
+            max_mb = limit // (1024 * 1024)
+            raise BadRequestError(f"File too large. Maximum size: {max_mb}MB")
+    return bytes(content)
 
 
 class FileUploadService:
@@ -161,10 +181,7 @@ class FileUploadService:
         if (
             not record
             or not record.is_active
-            or (
-                not self._is_admin(actor_id)
-                and record.uploaded_by != actor_id
-            )
+            or (not self._is_admin(actor_id) and record.uploaded_by != actor_id)
         ):
             raise NotFoundError("File upload not found")
         return record

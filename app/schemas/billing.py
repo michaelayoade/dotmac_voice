@@ -41,12 +41,12 @@ class PriceBase(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     product_id: UUID
     currency: str = Field(min_length=3, max_length=3)
-    unit_amount: int
+    unit_amount: int = Field(ge=0)
     type: Literal["one_time", "recurring"]
     billing_scheme: Literal["per_unit", "tiered"] = "per_unit"
     recurring_interval: Literal["day", "week", "month", "year"] | None = None
-    recurring_interval_count: int = 1
-    trial_period_days: int | None = None
+    recurring_interval_count: int = Field(default=1, ge=1)
+    trial_period_days: int | None = Field(default=None, ge=0)
     tiers_json: dict | None = None
     lookup_key: str | None = Field(default=None, max_length=255)
     is_active: bool = True
@@ -60,12 +60,12 @@ class PriceCreate(PriceBase):
 class PriceUpdate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     currency: str | None = Field(default=None, min_length=3, max_length=3)
-    unit_amount: int | None = None
+    unit_amount: int | None = Field(default=None, ge=0)
     type: Literal["one_time", "recurring"] | None = None
     billing_scheme: Literal["per_unit", "tiered"] | None = None
     recurring_interval: Literal["day", "week", "month", "year"] | None = None
-    recurring_interval_count: int | None = None
-    trial_period_days: int | None = None
+    recurring_interval_count: int | None = Field(default=None, ge=1)
+    trial_period_days: int | None = Field(default=None, ge=0)
     tiers_json: dict | None = None
     lookup_key: str | None = Field(default=None, max_length=255)
     is_active: bool | None = None
@@ -194,7 +194,7 @@ class SubscriptionItemBase(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     subscription_id: UUID
     price_id: UUID
-    quantity: int = 1
+    quantity: int = Field(default=1, ge=1)
     is_active: bool = True
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
 
@@ -205,7 +205,7 @@ class SubscriptionItemCreate(SubscriptionItemBase):
 
 class SubscriptionItemUpdate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
-    quantity: int | None = None
+    quantity: int | None = Field(default=None, ge=1)
     is_active: bool | None = None
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
 
@@ -226,12 +226,12 @@ class InvoiceBase(BaseModel):
     subscription_id: UUID | None = None
     number: str | None = Field(default=None, max_length=80)
     status: Literal["draft", "open", "paid", "void", "uncollectible"] = "draft"
-    currency: str = Field(default="usd", max_length=3)
-    subtotal: int = 0
-    tax: int = 0
-    total: int = 0
-    amount_due: int = 0
-    amount_paid: int = 0
+    currency: str = Field(default="usd", min_length=3, max_length=3)
+    subtotal: int = Field(default=0, ge=0)
+    tax: int = Field(default=0, ge=0)
+    total: int = Field(default=0, ge=0)
+    amount_due: int = Field(default=0, ge=0)
+    amount_paid: int = Field(default=0, ge=0)
     due_date: datetime | None = None
     paid_at: datetime | None = None
     period_start: datetime | None = None
@@ -250,11 +250,11 @@ class InvoiceUpdate(BaseModel):
     number: str | None = Field(default=None, max_length=80)
     status: Literal["draft", "open", "paid", "void", "uncollectible"] | None = None
     currency: str | None = Field(default=None, min_length=3, max_length=3)
-    subtotal: int | None = None
-    tax: int | None = None
-    total: int | None = None
-    amount_due: int | None = None
-    amount_paid: int | None = None
+    subtotal: int | None = Field(default=None, ge=0)
+    tax: int | None = Field(default=None, ge=0)
+    total: int | None = Field(default=None, ge=0)
+    amount_due: int | None = Field(default=None, ge=0)
+    amount_paid: int | None = Field(default=None, ge=0)
     due_date: datetime | None = None
     paid_at: datetime | None = None
     period_start: datetime | None = None
@@ -283,9 +283,9 @@ class InvoiceItemBase(BaseModel):
     price_id: UUID | None = None
     subscription_item_id: UUID | None = None
     description: str | None = None
-    quantity: int = 1
-    unit_amount: int = 0
-    amount: int = 0
+    quantity: int = Field(default=1, ge=1)
+    unit_amount: int = Field(default=0, ge=0)
+    amount: int = Field(default=0, ge=0)
     period_start: datetime | None = None
     period_end: datetime | None = None
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
@@ -298,9 +298,9 @@ class InvoiceItemCreate(InvoiceItemBase):
 class InvoiceItemUpdate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     description: str | None = None
-    quantity: int | None = None
-    unit_amount: int | None = None
-    amount: int | None = None
+    quantity: int | None = Field(default=None, ge=1)
+    unit_amount: int | None = Field(default=None, ge=0)
+    amount: int | None = Field(default=None, ge=0)
     period_start: datetime | None = None
     period_end: datetime | None = None
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
@@ -357,8 +357,8 @@ class PaymentIntentBase(BaseModel):
     customer_id: UUID
     invoice_id: UUID | None = None
     payment_method_id: UUID | None = None
-    amount: int
-    currency: str = Field(max_length=3)
+    amount: int = Field(ge=1)
+    currency: str = Field(min_length=3, max_length=3)
     status: Literal[
         "requires_payment_method",
         "requires_confirmation",
@@ -413,7 +413,7 @@ class PaymentIntentRead(PaymentIntentBase):
 class UsageRecordBase(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     subscription_item_id: UUID
-    quantity: int
+    quantity: int = Field(ge=0)
     action: Literal["increment", "set"] = "increment"
     recorded_at: datetime | None = None
     idempotency_key: str = Field(max_length=255)
@@ -440,13 +440,13 @@ class CouponBase(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     name: str = Field(min_length=1, max_length=255)
     code: str = Field(min_length=1, max_length=80)
-    percent_off: int | None = None
-    amount_off: int | None = None
-    currency: str | None = Field(default=None, max_length=3)
+    percent_off: int | None = Field(default=None, ge=0, le=100)
+    amount_off: int | None = Field(default=None, ge=0)
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
     duration: Literal["once", "repeating", "forever"]
-    duration_in_months: int | None = None
-    max_redemptions: int | None = None
-    times_redeemed: int = 0
+    duration_in_months: int | None = Field(default=None, ge=1)
+    max_redemptions: int | None = Field(default=None, ge=0)
+    times_redeemed: int = Field(default=0, ge=0)
     valid: bool = True
     redeem_by: datetime | None = None
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
@@ -459,13 +459,13 @@ class CouponCreate(CouponBase):
 class CouponUpdate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     name: str | None = Field(default=None, max_length=255)
-    percent_off: int | None = None
-    amount_off: int | None = None
-    currency: str | None = Field(default=None, max_length=3)
+    percent_off: int | None = Field(default=None, ge=0, le=100)
+    amount_off: int | None = Field(default=None, ge=0)
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
     duration: Literal["once", "repeating", "forever"] | None = None
-    duration_in_months: int | None = None
-    max_redemptions: int | None = None
-    times_redeemed: int | None = None
+    duration_in_months: int | None = Field(default=None, ge=1)
+    max_redemptions: int | None = Field(default=None, ge=0)
+    times_redeemed: int | None = Field(default=None, ge=0)
     valid: bool | None = None
     redeem_by: datetime | None = None
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
@@ -514,7 +514,7 @@ class EntitlementBase(BaseModel):
     feature_key: str = Field(min_length=1, max_length=120)
     value_type: Literal["boolean", "numeric", "string", "unlimited"]
     value_text: str | None = None
-    value_numeric: int | None = None
+    value_numeric: int | None = Field(default=None, ge=0)
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
 
 
@@ -527,7 +527,7 @@ class EntitlementUpdate(BaseModel):
     feature_key: str | None = Field(default=None, max_length=120)
     value_type: Literal["boolean", "numeric", "string", "unlimited"] | None = None
     value_text: str | None = None
-    value_numeric: int | None = None
+    value_numeric: int | None = Field(default=None, ge=0)
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
 
 

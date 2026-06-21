@@ -5,15 +5,7 @@ from sqlalchemy import engine_from_config, pool
 
 from app.config import settings
 from app.db import Base
-from app.models import (  # noqa: F401
-    auth,
-    audit,
-    domain_settings,
-    person,
-    rbac,
-    scheduler,
-    voice,
-)
+import app.models  # noqa: F401
 
 config = context.config
 

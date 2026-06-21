@@ -1,4 +1,29 @@
 services:
+  migrate:
+    build: .
+    container_name: dotmac_voice_migrate
+    restart: "no"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@db:5432/dotmac_voice}
+      REDIS_URL: ${REDIS_URL:-redis://:redis@redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://:redis@redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://:redis@redis:6379/1}
+      FUSIONPBX_API_URL: ${FUSIONPBX_API_URL:-http://localhost:8080}
+      FUSIONPBX_API_KEY: ${FUSIONPBX_API_KEY:-}
+      ESL_HOST: ${ESL_HOST:-localhost}
+      ESL_PORT: ${ESL_PORT:-8021}
+      ESL_PASSWORD: ${ESL_PASSWORD:-ClueCon}
+      EDGE_WSS_URL: ${EDGE_WSS_URL:-wss://sip.dotmac.io:443}
+      VOICE_INGRESS_API_KEYS: ${VOICE_INGRESS_API_KEYS:-}
+      VOICE_INGRESS_ALLOWED_IPS: ${VOICE_INGRESS_ALLOWED_IPS:-}
+      TOKEN_SIGNING_KEY: ${TOKEN_SIGNING_KEY:-dev-token-key}
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["alembic", "upgrade", "head"]
+
   app:
     build: .
     container_name: dotmac_voice_app
@@ -22,6 +47,8 @@ services:
     env_file:
       - .env
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       redis:
@@ -49,6 +76,8 @@ services:
     env_file:
       - .env
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       redis:
@@ -76,6 +105,8 @@ services:
     env_file:
       - .env
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       redis:

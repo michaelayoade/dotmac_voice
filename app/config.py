@@ -141,7 +141,9 @@ def validate_settings(s: Settings) -> list[ConfigWarning]:
         and os.getenv("ENVIRONMENT", "dev") == "production"
     ):
         warnings.append(
-            ConfigWarning("DATABASE_URL points to localhost in production", critical=True)
+            ConfigWarning(
+                "DATABASE_URL points to localhost in production", critical=True
+            )
         )
 
     if production and not s.trusted_hosts:
@@ -186,6 +188,14 @@ def validate_settings(s: Settings) -> list[ConfigWarning]:
                     critical=production,
                 )
             )
+
+    if production and s.token_signing_key == "dev-token-key":  # noqa: S105
+        warnings.append(
+            ConfigWarning(
+                "TOKEN_SIGNING_KEY uses the development default",
+                critical=True,
+            )
+        )
 
     for cidr in os.getenv("TRUSTED_PROXY_CIDRS", "").split(","):
         cidr = cidr.strip()
