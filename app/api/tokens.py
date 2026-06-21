@@ -10,7 +10,7 @@ router = APIRouter(prefix="/tokens", tags=["tokens"], dependencies=[Depends(requ
 class TokenRequest(BaseModel):
     subject: str = Field(min_length=1)
     scope: str = Field(min_length=1)
-    ttl_seconds: int = 60
+    ttl_seconds: int = Field(default=60, gt=0, le=300)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

@@ -19,3 +19,13 @@ def test_tokens_endpoint_requires_key(client):
 def test_tokens_endpoint_mints(client):
     r = client.post("/tokens", json={"subject": "s1", "scope": "queue:support"}, headers=INGRESS)
     assert r.status_code == 201 and r.json()["scope"] == "queue:support"
+
+
+def test_tokens_endpoint_rejects_zero_ttl(client):
+    r = client.post("/tokens", json={"subject": "s1", "scope": "queue:support", "ttl_seconds": 0}, headers=INGRESS)
+    assert r.status_code == 422
+
+
+def test_tokens_endpoint_rejects_excessive_ttl(client):
+    r = client.post("/tokens", json={"subject": "s1", "scope": "queue:support", "ttl_seconds": 99999}, headers=INGRESS)
+    assert r.status_code == 422
