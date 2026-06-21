@@ -16,7 +16,7 @@
 - Migrations are idempotent (`inspector.has_table(...)`, `ENUM(..., create_type=False).create(conn, checkfirst=True)`); **every new model module must be imported in `alembic/env.py`**.
 - API routers are registered via `_include_api_router(...)` (mounts at both `/` and `/api/v1`).
 - Test command: `poetry run pytest tests/ -q` (SQLite in-memory; fixtures `client`, `auth_headers`, `db_session` from `tests/conftest.py`). Commit after every green task.
-- ESL is **local-only** (never bound to a public interface). The public API ingress uses API-key + IP allowlist (modeled on `require_audit_auth`).
+- ESL is **local-only** (never bound to a public interface). The public API ingress uses constant-time API-key verification + trusted-proxy-aware IP allowlist + edge rate limiting. mTLS is the preferred production deployment posture; if deferred, document the compensating controls before exposing `voice.dotmac.io`.
 
 ---
 
@@ -395,6 +395,15 @@ def test_reconcile_creates_missing_extension(db_session):
     assert "1002" in client.created
     assert status == SyncStatus.synced
     assert dom.sync_status == SyncStatus.synced
+
+def test_reconcile_detects_extra_actual_extension(db_session):
+    dom = VoiceDomain(customer_id="c2", fusionpbx_domain="c2.local"); db_session.add(dom); db_session.flush()
+    db_session.add(Extension(voice_domain_id=dom.id, number="1001")); db_session.flush()
+    client = _FakeClient()
+    client.list_extensions = lambda domain: [{"number": "1001"}, {"number": "9999"}]
+    status = reconcile_voice(db_session, client, "c2")
+    assert status in {SyncStatus.drift, SyncStatus.synced}
+    # If Tier 0 chooses delete-on-drift, also assert the fake client recorded a delete for "9999".
 ```
 
 - [ ] **Step 2: Run, expect FAIL.** `poetry run pytest tests/test_reconcile_voice.py -q`.
@@ -427,7 +436,13 @@ def reconcile_voice(db: Session, client, customer_id: str) -> SyncStatus:
         delta = compute_delta(desired, actual)
         for number in sorted(delta.to_create):
             client.create_extension(domain.fusionpbx_domain, number, password="", display_name="")
-        domain.sync_status = SyncStatus.synced
+        if delta.to_delete:
+            # Tier 0 policy decision:
+            # - preferred for authoritative desired state: delete extras via FusionPBX and then mark synced
+            # - conservative fallback: mark drift and leave extras untouched
+            domain.sync_status = SyncStatus.drift
+        else:
+            domain.sync_status = SyncStatus.synced
     except ServiceUnavailableError:
         domain.sync_status = SyncStatus.error
     domain.last_reconciled_at = datetime.now(UTC)
@@ -450,7 +465,8 @@ git commit -m "feat(voice): add reconcile_voice delta + apply"
 - Test: `tests/test_ingress_auth.py`
 
 **Interfaces:**
-- Produces: `require_ingress` FastAPI dependency — 401 if `X-API-Key` not in `settings.voice_ingress_api_keys`; 403 if `settings.voice_ingress_allowed_ips` is non-empty and the client IP is not in it.
+- Produces: `require_ingress` FastAPI dependency — 401 if `X-API-Key` is missing or does not constant-time match a configured key; 403 if `settings.voice_ingress_allowed_ips` is non-empty and the trusted-proxy-aware client IP is not in it.
+- Production deployment requirement: front the API with an mTLS-capable reverse proxy and edge rate limiting. The app dependency is an in-process gate, not the whole perimeter.
 
 - [ ] **Step 1: Write the failing test** (a throwaway router using the dep, exercised via `client`):
 ```python
@@ -479,19 +495,24 @@ def test_valid_key_200(client):
 - [ ] **Step 3: Implement.**
 ```python
 # app/services/ingress_auth.py
+import secrets
 from fastapi import Header, HTTPException, Request, status
 from app.config import settings
+from app.middleware.rate_limit import _get_client_ip
 
-def _csv(value: str) -> set[str]:
-    return {v.strip() for v in value.split(",") if v.strip()}
+def _csv(value: str) -> tuple[str, ...]:
+    return tuple(v.strip() for v in value.split(",") if v.strip())
+
+def _allowed_api_key(candidate: str, allowed_keys: tuple[str, ...]) -> bool:
+    return any(secrets.compare_digest(candidate, allowed) for allowed in allowed_keys)
 
 def require_ingress(request: Request, x_api_key: str | None = Header(default=None)) -> None:
     allowed_keys = _csv(settings.voice_ingress_api_keys)
-    if not x_api_key or x_api_key not in allowed_keys:
+    if not x_api_key or not _allowed_api_key(x_api_key, allowed_keys):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid api key")
     allowed_ips = _csv(settings.voice_ingress_allowed_ips)
     if allowed_ips:
-        client_ip = request.client.host if request.client else ""
+        client_ip = _get_client_ip(request)
         if client_ip not in allowed_ips:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="ip not allowed")
 ```
@@ -513,7 +534,8 @@ git commit -m "feat(voice): add API-key + IP-allowlist ingress dependency"
 
 **Interfaces:**
 - Consumes: `require_ingress` (Task 12), `reconcile_voice` (Task 11), `FusionpbxClient` (Task 10), models (Task 9).
-- Produces: `PUT /provisioning/domains/{customer_id}` body `{fusionpbx_domain: str, extensions: [{number, display_name?}]}` → persists desired `VoiceDomain`+`Extension` rows, runs `reconcile_voice`, returns `{customer_id, sync_status}`.
+- Produces: `PUT /provisioning/domains/{customer_id}` body `{fusionpbx_domain: str, extensions: [{number, display_name?}]}` → replaces desired `VoiceDomain`+`Extension` state for that customer, runs `reconcile_voice`, returns `{customer_id, sync_status}`.
+- Desired-state rule: the payload is authoritative for the domain. Update existing extension attributes, add missing desired extensions, and mark/remove local desired extensions absent from the payload before reconciling FusionPBX.
 
 - [ ] **Step 1: Write the failing test** (override the client dependency with a fake; ingress key in headers):
 ```python
@@ -536,6 +558,16 @@ def test_put_provisioning_creates_and_syncs(client):
 def test_put_provisioning_requires_key(client):
     r = client.put("/provisioning/domains/c1", json={"fusionpbx_domain": "c1.local", "extensions": []})
     assert r.status_code == 401
+
+def test_put_provisioning_replaces_desired_extensions(client):
+    from app.api.provisioning import get_fusionpbx_client
+    client.app.dependency_overrides[get_fusionpbx_client] = lambda: _FakeClient()
+    first = {"fusionpbx_domain": "c2.local", "extensions": [{"number": "1001"}, {"number": "1002"}]}
+    second = {"fusionpbx_domain": "c2.local", "extensions": [{"number": "1002", "display_name": "Support"}]}
+    assert client.put("/provisioning/domains/c2", json=first, headers=INGRESS).status_code == 200
+    assert client.put("/provisioning/domains/c2", json=second, headers=INGRESS).status_code == 200
+    # Assert the local desired-state table now has only 1002 and its display_name changed.
+    client.app.dependency_overrides.pop(get_fusionpbx_client)
 ```
 
 - [ ] **Step 2: Run, expect FAIL.** `poetry run pytest tests/test_api_provisioning.py -q`.
@@ -587,8 +619,14 @@ def put_domain(customer_id: str, payload: DomainIntent, db: Session = Depends(ge
         domain = VoiceDomain(customer_id=customer_id, fusionpbx_domain=payload.fusionpbx_domain)
         db.add(domain); db.flush()
     existing = {e.number: e for e in db.scalars(select(Extension).where(Extension.voice_domain_id == domain.id))}
+    desired_numbers = {ext.number for ext in payload.extensions}
+    for number, row in existing.items():
+        if number not in desired_numbers:
+            db.delete(row)
     for ext in payload.extensions:
-        if ext.number not in existing:
+        if ext.number in existing:
+            existing[ext.number].display_name = ext.display_name
+        else:
             db.add(Extension(voice_domain_id=domain.id, number=ext.number, display_name=ext.display_name))
     db.flush()
     status = reconcile_voice(db, client, customer_id)
@@ -621,10 +659,12 @@ git commit -m "feat(voice): add provisioning-intent endpoint (reconcile_voice)"
 **Interfaces:**
 - Consumes: `require_ingress` (Task 12), `settings.token_signing_key`, `settings.edge_wss_url`.
 - Produces: `mint_token(subject, scope, ttl_seconds) -> dict{token, sip_uri, wss_endpoint, expires_in}` (HS256 JWT with `sub`, `scope`, `exp`); `POST /tokens` body `{subject, scope, ttl_seconds?}`.
+- Tier 0 token policy: TTL must be bounded (`1..300` seconds), subject/scope lengths are bounded, and `TOKEN_SIGNING_KEY=dev-token-key` is a production startup failure. Persistent token grants/revocation are documented as Tier 1 unless Tier 0 needs active revocation before any public client release.
 
 - [ ] **Step 1: Write the failing test.**
 ```python
 # tests/test_tokens.py
+import pytest
 from jose import jwt
 from app.services.tokens import mint_token
 from app.config import settings
@@ -636,12 +676,20 @@ def test_mint_token_encodes_scope_and_exp():
     assert claims["sub"] == "subscriber-1" and claims["scope"] == "queue:support"
     assert out["wss_endpoint"] == settings.edge_wss_url and out["expires_in"] == 60
 
+def test_mint_token_rejects_invalid_ttl():
+    with pytest.raises(ValueError):
+        mint_token("subscriber-1", "queue:support", 99999)
+
 def test_tokens_endpoint_requires_key(client):
     assert client.post("/tokens", json={"subject": "s1", "scope": "queue:support"}).status_code == 401
 
 def test_tokens_endpoint_mints(client):
     r = client.post("/tokens", json={"subject": "s1", "scope": "queue:support"}, headers=INGRESS)
     assert r.status_code == 201 and r.json()["scope"] == "queue:support"
+
+def test_tokens_endpoint_rejects_excessive_ttl(client):
+    r = client.post("/tokens", json={"subject": "s1", "scope": "queue:support", "ttl_seconds": 99999}, headers=INGRESS)
+    assert r.status_code == 422
 ```
 
 - [ ] **Step 2: Run, expect FAIL.** `poetry run pytest tests/test_tokens.py -q`.
@@ -652,7 +700,11 @@ from datetime import UTC, datetime, timedelta
 from jose import jwt
 from app.config import settings
 
+MAX_TOKEN_TTL_SECONDS = 300
+
 def mint_token(subject: str, scope: str, ttl_seconds: int = 60) -> dict:
+    if ttl_seconds < 1 or ttl_seconds > MAX_TOKEN_TTL_SECONDS:
+        raise ValueError("ttl_seconds must be between 1 and 300")
     now = datetime.now(UTC)
     claims = {"sub": subject, "scope": scope, "iat": int(now.timestamp()), "exp": int((now + timedelta(seconds=ttl_seconds)).timestamp())}
     token = jwt.encode(claims, settings.token_signing_key, algorithm="HS256")
@@ -669,9 +721,9 @@ from app.services.ingress_auth import require_ingress
 router = APIRouter(prefix="/tokens", tags=["tokens"], dependencies=[Depends(require_ingress)])
 
 class TokenRequest(BaseModel):
-    subject: str = Field(min_length=1)
-    scope: str = Field(min_length=1)
-    ttl_seconds: int = 60
+    subject: str = Field(min_length=1, max_length=255)
+    scope: str = Field(min_length=1, max_length=120)
+    ttl_seconds: int = Field(default=60, gt=0, le=300)
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_token(payload: TokenRequest):
@@ -793,9 +845,9 @@ git commit -m "feat(voice): add ESL bridge skeleton with event normalization"
 - CDR ingest + rating feed, outbound webhooks to crm, click-to-dial (Tier 2).
 - sub `reconcile_voice` caller + selfcare Phone tab (Tier 1).
 - crm voice channel + softphone, talk-to-agent client (Tier 2).
-- PSTN trunk/DID + per-minute fraud limits (PSTN go-live).
+- PSTN trunk/DID + per-minute fraud limits (PSTN go-live; not required for the on-net Tier 0 acceptance gate).
 
 ## Open dependencies (from spec §10)
-- Carrier SIP trunk / DID provider (PSTN only — on-net Tier 0 does not need it).
+- Carrier SIP trunk / DID provider (required for PSTN go-live only; not required for the on-net Tier 0 acceptance gate).
 - Public-IP/DMZ provisioning at the local site (Task 1).
 - `voice.dotmac.io` reverse-proxy + cert for the API ingress (deploy alongside Task 4's edge).
