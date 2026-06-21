@@ -85,6 +85,17 @@ class Settings:
         "STATIC_CACHE_CONTROL", "public, max-age=300, must-revalidate"
     )
 
+    # Voice settings
+    fusionpbx_api_url: str = os.getenv("FUSIONPBX_API_URL", "http://localhost:8080")
+    fusionpbx_api_key: str = os.getenv("FUSIONPBX_API_KEY", "")
+    esl_host: str = os.getenv("ESL_HOST", "localhost")
+    esl_port: int = int(os.getenv("ESL_PORT", "8021"))
+    esl_password: str = os.getenv("ESL_PASSWORD", "ClueCon")
+    edge_wss_url: str = os.getenv("EDGE_WSS_URL", "wss://sip.dotmac.io:443")
+    voice_ingress_api_keys: str = os.getenv("VOICE_INGRESS_API_KEYS", "")
+    voice_ingress_allowed_ips: str = os.getenv("VOICE_INGRESS_ALLOWED_IPS", "")
+    token_signing_key: str = os.getenv("TOKEN_SIGNING_KEY", "dev-token-key")
+
 
 def validate_settings(s: Settings) -> list[ConfigWarning]:
     """Validate required settings at startup."""
