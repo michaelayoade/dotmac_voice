@@ -76,8 +76,45 @@ class EslBridge:
         self._conn.register_handle("*", self._dispatch)
         self._conn.send("events plain ALL")
 
+    def originate(self, command: str) -> str:  # pragma: no cover - exercised in integration, not unit tests
+        """Send an originate command over ESL and return the response.
+
+        Args:
+            command: A FreeSWITCH ESL command string (e.g. built by build_originate_command).
+
+        Returns:
+            The raw response string from FreeSWITCH ESL.
+        """
+        self._conn.send(command)
+        return self._conn.get_response()
+
     def _dispatch(self, event) -> None:  # pragma: no cover
         """Dispatch normalized event to callback."""
         normalized = normalize_event(dict(event.headers))
         if normalized and self._callback:
             self._callback(normalized)
+
+
+def build_originate_command(
+    agent_extension: str,
+    destination: str,
+    domain: str,
+    caller_id_number: str = "",
+) -> str:
+    """Build a FreeSWITCH bgapi originate command bridging an agent extension to a destination.
+
+    Args:
+        agent_extension: The agent's extension number (e.g. "1001").
+        destination: The normalized destination number to dial.
+        domain: The SIP domain (e.g. "c1.local").
+        caller_id_number: Optional outbound caller ID number.
+            If empty, the {origination_caller_id_number=...} vars block is omitted.
+
+    Returns:
+        A FreeSWITCH ESL originate command string.
+    """
+    if caller_id_number:
+        vars_block = f"{{origination_caller_id_number={caller_id_number}}}"
+    else:
+        vars_block = ""
+    return f"bgapi originate {vars_block}user/{agent_extension}@{domain} {destination} XML default"

@@ -6,6 +6,7 @@ from sqlalchemy import engine_from_config, pool
 from app.config import settings
 from app.db import Base
 import app.models  # noqa: F401
+from app.models import webhook  # noqa: F401
 
 config = context.config
 
