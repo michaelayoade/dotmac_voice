@@ -32,7 +32,7 @@ def fpbx_engine() -> Engine:
                 CREATE TABLE v_domains (
                     domain_uuid TEXT PRIMARY KEY,
                     domain_name TEXT,
-                    domain_enabled TEXT,
+                    domain_enabled BOOLEAN,
                     domain_description TEXT,
                     insert_date TEXT,
                     insert_user TEXT
@@ -55,7 +55,7 @@ def fpbx_engine() -> Engine:
                     outbound_caller_id_name TEXT,
                     outbound_caller_id_number TEXT,
                     call_timeout INTEGER,
-                    enabled TEXT,
+                    enabled BOOLEAN,
                     directory_first_name TEXT,
                     description TEXT,
                     insert_date TEXT,
@@ -93,14 +93,15 @@ class TestCreateDomain:
         # No insert happened the second time -> no reload.
         reloader.assert_not_called()
 
-    def test_stores_text_boolean_enabled(self, client, fpbx_engine):
+    def test_stores_boolean_enabled(self, client, fpbx_engine):
         client.create_domain("a.local")
         with fpbx_engine.connect() as conn:
             enabled = conn.execute(
                 text("SELECT domain_enabled FROM v_domains WHERE domain_name = :n"),
                 {"n": "a.local"},
             ).scalar_one()
-        assert enabled == "true"
+        # FusionPBX domain_enabled is a real boolean column (1/True), not text.
+        assert enabled == 1
 
 
 class TestListDomains:
@@ -110,7 +111,7 @@ class TestListDomains:
         names = {d["name"] for d in client.list_domains()}
         assert names == {"a.local", "b.local"}
         for d in client.list_domains():
-            assert d["enabled"] == "true"
+            assert d["enabled"] is True
             assert d["domain_uuid"]
 
 
@@ -161,7 +162,7 @@ class TestCreateExtension:
             ).one()
         assert row.accountcode == "a.local"
         assert row.user_context == "a.local"
-        assert row.enabled == "true"
+        assert row.enabled == 1
         assert row.call_timeout == 30
         assert row.effective_caller_id_name == "Alice"
         assert row.effective_caller_id_number == "1001"

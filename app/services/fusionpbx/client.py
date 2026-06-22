@@ -18,12 +18,15 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 
 from sqlalchemy import (
+    Boolean,
     Column,
+    DateTime,
     Engine,
     Integer,
     MetaData,
     String,
     Table,
+    Uuid,
     create_engine,
     insert,
     select,
@@ -45,19 +48,18 @@ _metadata = MetaData()
 v_domains = Table(
     "v_domains",
     _metadata,
-    Column("domain_uuid", String, primary_key=True),
+    Column("domain_uuid", Uuid(as_uuid=False), primary_key=True),
     Column("domain_name", String),
-    Column("domain_enabled", String),
+    Column("domain_enabled", Boolean),
     Column("domain_description", String),
-    Column("insert_date", String),
-    Column("insert_user", String),
+    Column("insert_date", DateTime(timezone=True)),
 )
 
 v_extensions = Table(
     "v_extensions",
     _metadata,
-    Column("extension_uuid", String, primary_key=True),
-    Column("domain_uuid", String),
+    Column("extension_uuid", Uuid(as_uuid=False), primary_key=True),
+    Column("domain_uuid", Uuid(as_uuid=False)),
     Column("extension", String),
     Column("password", String),
     Column("accountcode", String),
@@ -67,11 +69,10 @@ v_extensions = Table(
     Column("outbound_caller_id_name", String),
     Column("outbound_caller_id_number", String),
     Column("call_timeout", Integer),
-    Column("enabled", String),
+    Column("enabled", Boolean),
     Column("directory_first_name", String),
     Column("description", String),
-    Column("insert_date", String),
-    Column("insert_user", String),
+    Column("insert_date", DateTime(timezone=True)),
 )
 
 # Errors that mean the FusionPBX database is unreachable / a transport fault.
@@ -156,9 +157,8 @@ class FusionpbxClient:
             insert(v_domains).values(
                 domain_uuid=domain_uuid,
                 domain_name=name,
-                domain_enabled="true",
-                insert_date=datetime.now(UTC).isoformat(),
-                insert_user="dotmac_voice",
+                domain_enabled=True,
+                insert_date=datetime.now(UTC),
             )
         )
         return domain_uuid, True
@@ -313,10 +313,9 @@ class FusionpbxClient:
                         outbound_caller_id_name=display_name,
                         outbound_caller_id_number=number,
                         call_timeout=30,
-                        enabled="true",
+                        enabled=True,
                         directory_first_name=display_name,
-                        insert_date=datetime.now(UTC).isoformat(),
-                        insert_user="dotmac_voice",
+                        insert_date=datetime.now(UTC),
                     )
                 )
                 wrote = True
