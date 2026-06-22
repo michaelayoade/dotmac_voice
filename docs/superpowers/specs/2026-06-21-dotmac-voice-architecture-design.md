@@ -1,7 +1,7 @@
 # DotMac Voice — E2E Architecture Design
 
 **Date:** 2026-06-21
-**Status:** Approved design (pre-implementation)
+**Status:** Approved design. Tier 0 `dotmac_voice` skeleton + security hardening implemented & merged to `main` (2026-06-21). **Revised 2026-06-22:** CRM is the unified comms hub; sub↔voice is for the billable product only (see §1).
 **Scope:** Full end-to-end reference architecture for DotMac's voice/telephony products, including UI integration with `dotmac_sub` and `dotmac_crm`. Implementation is decomposed per tier afterward (each tier gets its own implementation plan).
 
 ---
@@ -12,7 +12,7 @@ Build voice products on a **locally-hosted FusionPBX/FreeSWITCH**, as tiers on o
 
 1. **Residential phone lines + Virtual PBX for organizations** — via `dotmac_sub` (billed on the existing invoice).
 2. **Internal call center** — via `dotmac_crm` (extends the existing omnichannel inbox + WhatsApp-WebRTC infra).
-3. **In-app "Talk to an agent"** — authenticated WebRTC from the `dotmac_sub` native app into the support queue, with exact-customer screen-pop.
+3. **Unified customer comms (live chat + "Talk to an agent" voice)** — via `dotmac_crm` as the comms hub; the customer app reaches support **through CRM** (CRM-native chat + WebRTC voice into the support queue), with exact-customer screen-pop. (Sub is not in this path.)
 4. **Later/optional:** CCaaS sold to orgs (needs a multi-tenant agent console — a separate future build), SMS gateway (separate engine), CPaaS (Jambonz).
 
 ### Locked decisions (from brainstorming)
@@ -23,6 +23,7 @@ Build voice products on a **locally-hosted FusionPBX/FreeSWITCH**, as tiers on o
 - **FusionPBX integration = Approach A**: provision via FusionPBX REST API; real-time call control + events via FreeSWITCH ESL. FusionPBX stays the admin GUI for techs.
 - **Cloud↔local connectivity = Option 1**: `dotmac_voice` exposes an authenticated **public HTTPS API** (mTLS/API-key + IP allowlist to sub/crm hosts only + edge rate-limit). No VPN. Webhooks are outbound.
 - **`dotmac_voice` is single-tenant**: a customer is a `customer_id`/`fusionpbx_domain` foreign key (data), not an app-level `org_id` scope. Tenancy is handled below it (FusionPBX domains) and beside it (sub accounts).
+- **Comms-vs-product split (refined 2026-06-22):** `dotmac_crm` is the **unified comms hub** — ALL customer support comms (live chat, WhatsApp, voice "talk to an agent") flow through CRM, and the customer app integrates with CRM for comms. `dotmac_sub` owns the **billable voice product only** (per-customer PBX/line provisioning + per-minute/line billing) and connects to CRM for customer context + outbound notifications. **`dotmac_voice` ↔ `sub` exists ONLY for the billable product, never for support comms.** `dotmac_voice` ↔ `crm` serves the contact center + the app's talk-to-agent.
 
 ---
 
@@ -46,9 +47,13 @@ Three zones: **public edge** (only internet-facing surface), **local core** (on-
                           authenticated public HTTPS API (mTLS/API-key + IP allowlist)
                                         │   ▲ outbound HMAC webhooks
    ┌──────────── CLOUD (existing) ──────┴───┴───────────────────────────────────────┐
-   │  dotmac_sub (reconcile_voice intent · CDR rating→billing · selfcare · app)      │
-   │  dotmac_crm (call-center voice channel · agent softphone · click-to-dial)       │
+   │  dotmac_sub — PRODUCT: reconcile_voice provision · CDR rating→billing · selfcare │
+   │  dotmac_crm — COMMS HUB: chat/whatsapp/voice · agents · screen-pop · click-to-dial│
+   │       sub ⇄ crm: customer context + outbound notifications                       │
    └─────────────────────────────────────────────────────────────────────────────────┘
+
+   Customer app  ──comms (chat + talk-to-agent voice)──▶  dotmac_crm
+                 ──account · billing · manage purchased lines──▶  dotmac_sub
 ```
 
 | Component | Location | Role |
@@ -59,8 +64,8 @@ Three zones: **public edge** (only internet-facing surface), **local core** (on-
 | **FreeSWITCH** | local, N nodes | call/media engine, voicemail, IVR, `mod_callcenter` queues |
 | **FusionPBX** | local | multi-tenant provisioning + tech admin GUI (driven by dotmac_voice via REST) |
 | **dotmac_voice** | local (beside FreeSWITCH) | control-plane: provisioning, ESL bridge, CDR, token minting, webhooks; runs local because ESL must never be public |
-| **dotmac_sub** | cloud | provisioning intent, CDR rating→billing, selfcare Phone tab, native-app talk-to-agent |
-| **dotmac_crm** | cloud | call-center voice channel, agent softphone, click-to-dial, screen-pop |
+| **dotmac_sub** | cloud | **billable product:** provisioning intent, CDR rating→billing, selfcare to manage purchased lines. Connects to CRM for context + notifications. NOT in the support-comms path. |
+| **dotmac_crm** | cloud | **unified comms hub:** live chat + WhatsApp + voice channels, agents, screen-pop, click-to-dial. The customer app's chat + talk-to-agent terminate here. |
 | **Carrier SIP trunk** | external (phase 2) | PSTN origination/termination + DID inbound |
 
 **Media paths:** PSTN ⇄ RTPengine ⇄ FreeSWITCH · remote agent/customer ⇄ RTPengine(public) ⇄ FreeSWITCH · in-office agent same path, lower RTT (edge on-net); optional LAN-direct optimization later.
@@ -133,15 +138,16 @@ carrier → Kamailio → FreeSWITCH dialplan → route by DID → customer IVR /
      → agent softphone (WebRTC) rings → answer → media via RTPengine
 ```
 
-**3. In-app "Talk to an agent"** (authenticated; exact screen-pop)
+**3. Customer comms via the CRM hub — live chat + "Talk to an agent" voice** (CRM is the hub; sub is NOT in this path)
 ```
-customer (logged into native app) taps "Talk to an agent"
- → app asks sub for token → sub calls dotmac_voice POST /api/tokens
-      {subject: subscriber_id, scope: "queue:support", ttl: ~60s}   ← caged to support queue
- → app WebRTC registers to Kamailio with token → dials support
-   → FreeSWITCH support queue → ESL event carries subscriber_id
-     → dotmac_voice → POST crm voice webhook WITH exact subscriber_id
-       → agent gets EXACT-customer screen-pop → connect
+LIVE CHAT:  customer app ──▶ CRM chat channel ──▶ agent inbox     (no voice engine involved)
+
+TALK TO AGENT (voice):
+ customer app taps "Talk to an agent" → app requests a voice token from CRM
+   → CRM issues a scoped ephemeral token (queue:support, ttl ~60s; minted via dotmac_voice token API)
+ → app WebRTC → Kamailio (token) → FreeSWITCH support queue
+   → ESL event carries the customer id → dotmac_voice → CRM voice webhook
+     → agent EXACT-customer screen-pop (sub & crm share records) → connect
 ```
 
 **4. Outbound click-to-dial (agent → customer)**
@@ -168,11 +174,12 @@ FreeSWITCH emits CDR (mod_json_cdr / CHANNEL_HANGUP_COMPLETE)
 - Nav: `<a href="/portal/phone">` in `templates/layouts/customer.html` (~L107), `active_page="phone"`.
 - Route: `@router.get("/phone")` in `app/web/customer/routes.py` → a `web_voice` context builder.
 - Template: `templates/customer/phone/` using house macros (`status_badge`, `empty_state`, `live_search`), CSRF on POST, dark-mode pairs.
-- Customer does: manage extensions/DIDs, call forwarding, voicemail-to-email, IVR/business-hours (virtual-PBX tier), view call history + usage/charges.
+- Customer does: manage the lines/PBX they **purchased** — extensions/DIDs, call forwarding, voicemail-to-email, IVR/business-hours (virtual-PBX tier), view call history + usage/charges. **Contacting support is NOT here** — that's the comms app via CRM (§5B).
 - Writes: HTMX POST → sub service → `reconcile_voice` intent → dotmac_voice. Reads via sub's voice context builder → dotmac_voice.
 
-### B) sub native app — "Talk to an agent"
-- Backend contract (stack-agnostic): button → sub mints scoped token (`queue:support`, ~60s) via dotmac_voice `/api/tokens` → app opens WebRTC/SIP to Kamailio (WSS) → dials support; in-call UI = mute/hangup/connecting.
+### B) Customer comms app — live chat + "Talk to an agent" (via CRM, not sub)
+- The customer app integrates with **CRM** for ALL support comms: live chat (CRM-native channel) and "Talk to an agent" voice. Sub is not in this path.
+- Voice backend contract (stack-agnostic): button → **CRM** issues a scoped ephemeral token (`queue:support`, ~60s; minted via dotmac_voice `/api/tokens`) → app opens WebRTC/SIP to Kamailio (WSS) → support queue; in-call UI = mute/hangup/connecting. Identity flows on the call for exact screen-pop (sub & crm share records).
 - **Native-app finding (surveyed 2026-06-21):** the only native app is `dotmac_field` — a **field-technician/vendor app** (Flutter, Riverpod + Dio + go_router, talks to `crm.dotmac.io`, zero VoIP today). **There is NO customer-facing mobile app**; `dotmac_sub` is web-only. So the customer "Talk to an agent" target is an **open Tier-2 decision**: (1) browser WebRTC in sub's web Phone tab (works today, no app); (2) build a new customer Flutter app (separate project); or (3) the feature is actually field-tech→dispatch calling, in which case `dotmac_field` is the home (`lib/core/sip/` + a `support_call` feature; recommend `flutter_webrtc` + `sip_ua`; needs mic permissions + iOS audio session; FCM/CallKit only if inbound). Backend token contract is unchanged regardless.
 
 ### C) crm agent softphone + voice channel (web — reuses WhatsApp-calling infra)
@@ -224,13 +231,13 @@ FreeSWITCH emits CDR (mod_json_cdr / CHANNEL_HANGUP_COMPLETE)
 
 - **Tier 0 — Core & edge:** local FreeSWITCH + FusionPBX; Kamailio + RTPengine + coturn public edge; dotmac_voice skeleton (ESL bridge, FusionPBX client, authenticated ingress); one real on-net call; fraud baseline. *Dependency: public edge/DMZ for on-net Tier 0; carrier SIP trunk + DID only for the PSTN slice.*
 - **Tier 1 — Lines + Virtual PBX + billing:** voice service type in sub; `reconcile_voice`; CDR rating → invoice; sub selfcare Phone tab.
-- **Tier 2 — Call center + in-app talk-to-agent:** crm voice channel + softphone + click-to-dial; sub native-app talk-to-agent (after native-app survey).
+- **Tier 2 — Contact center + customer comms (CRM hub):** crm voice channel + agent softphone + click-to-dial; customer comms app (live chat + talk-to-agent) as a **CRM client**; sub↔crm context + notification routing. Sub is not in the comms path.
 - **Later:** CCaaS (multi-tenant agent console), SMS gateway, CPaaS.
 
 ## 10. Open items / dependencies
 
 - Carrier SIP trunk / DID provider (gates PSTN; on-net launch doesn't need it).
-- **Customer "Talk to an agent" home (Tier-2 decision):** no customer mobile app exists (only `dotmac_field`, agent-facing). Choose: browser WebRTC in sub web selfcare / new customer app / field-tech→dispatch via `dotmac_field`. See §5B.
+- **Customer comms app (Tier-2 decision):** no customer mobile app exists yet (only `dotmac_field`, agent-facing). The comms app (live chat + talk-to-agent) is a **CRM client**. Choose: browser-based comms in CRM/web selfcare / new customer Flutter app. (Field-tech→dispatch via `dotmac_field` is a separate internal case.) See §5B.
 - **Splynx sync cleanup in dotmac_sub** — stale `splynx_sync` Celery beat tasks point at the decommissioned host; confirm disabled before layering voice billing on the same `account_id`.
 - Public-IP / DMZ provisioning at the local hosting site for the edge.
 - Secure ingress endpoint (`voice.dotmac.io` or similar) with mTLS/API-key + IP allowlist.
