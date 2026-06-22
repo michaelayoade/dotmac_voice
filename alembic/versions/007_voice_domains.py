@@ -19,10 +19,10 @@ depends_on = None
 def upgrade() -> None:
     conn = op.get_bind()
     inspector = sa.inspect(conn)
-    sync_status = postgresql.ENUM(
-        "pending", "synced", "drift", "error", name="syncstatus", create_type=False
+    op.execute(
+        "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'syncstatus') "
+        "THEN CREATE TYPE syncstatus AS ENUM ('pending', 'synced', 'drift', 'error'); END IF; END $$;"
     )
-    sync_status.create(conn, checkfirst=True)
     if not inspector.has_table("voice_domains"):
         op.create_table(
             "voice_domains",
@@ -31,7 +31,7 @@ def upgrade() -> None:
             sa.Column("fusionpbx_domain", sa.String(255), nullable=False),
             sa.Column(
                 "sync_status",
-                sa.Enum(
+                postgresql.ENUM(
                     "pending",
                     "synced",
                     "drift",
@@ -63,7 +63,7 @@ def upgrade() -> None:
             sa.Column("voicemail_enabled", sa.Boolean(), nullable=False),
             sa.Column(
                 "sync_status",
-                sa.Enum(
+                postgresql.ENUM(
                     "pending",
                     "synced",
                     "drift",

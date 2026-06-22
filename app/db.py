@@ -57,7 +57,9 @@ def _configure_statement_timeout(engine: Engine) -> None:
     @event.listens_for(engine, "connect")
     def _set_statement_timeout(dbapi_connection, _connection_record) -> None:
         with dbapi_connection.cursor() as cursor:
-            cursor.execute("SET statement_timeout = %s", (timeout_ms,))
+            # PostgreSQL SET does not accept bind parameters; timeout_ms is a
+            # validated int so literal interpolation is safe.
+            cursor.execute(f"SET statement_timeout = {timeout_ms}")
 
 
 SessionLocal = sessionmaker(bind=get_engine(), autoflush=False, autocommit=False)

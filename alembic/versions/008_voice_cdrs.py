@@ -20,10 +20,10 @@ def upgrade() -> None:
     conn = op.get_bind()
     inspector = sa.inspect(conn)
 
-    cdr_rating_status = postgresql.ENUM(
-        "raw", "rated", "fed", name="cdrratingstatus", create_type=False
+    op.execute(
+        "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'cdrratingstatus') "
+        "THEN CREATE TYPE cdrratingstatus AS ENUM ('raw', 'rated', 'fed'); END IF; END $$;"
     )
-    cdr_rating_status.create(conn, checkfirst=True)
 
     if not inspector.has_table("voice_cdrs"):
         op.create_table(
@@ -43,7 +43,7 @@ def upgrade() -> None:
             sa.Column("recording_url", sa.String(512), nullable=True),
             sa.Column(
                 "rating_status",
-                sa.Enum("raw", "rated", "fed", name="cdrratingstatus", create_type=False),
+                postgresql.ENUM("raw", "rated", "fed", name="cdrratingstatus", create_type=False),
                 nullable=False,
                 server_default="raw",
             ),

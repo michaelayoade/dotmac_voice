@@ -20,10 +20,10 @@ def upgrade() -> None:
     conn = op.get_bind()
     inspector = sa.inspect(conn)
 
-    delivery_status = postgresql.ENUM(
-        "pending", "delivered", "failed", name="deliverystatus", create_type=False
+    op.execute(
+        "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'deliverystatus') "
+        "THEN CREATE TYPE deliverystatus AS ENUM ('pending', 'delivered', 'failed'); END IF; END $$;"
     )
-    delivery_status.create(conn, checkfirst=True)
 
     if not inspector.has_table("voice_webhook_endpoints"):
         op.create_table(
@@ -50,7 +50,7 @@ def upgrade() -> None:
             sa.Column("payload", sa.JSON(), nullable=False, server_default="{}"),
             sa.Column(
                 "status",
-                sa.Enum(
+                postgresql.ENUM(
                     "pending", "delivered", "failed",
                     name="deliverystatus",
                     create_type=False,
