@@ -1,7 +1,7 @@
 """CDR ingest and feed endpoints."""
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -41,7 +41,7 @@ def post_ingest(
 @router.get("", response_model=list[CdrRead])
 def get_cdrs(
     rating_status: str = "raw",
-    limit: int = 100,
+    limit: int = Query(default=100, ge=1, le=1000),
     db: Session = Depends(get_db),
 ) -> list[CdrRead]:
     """Return CDRs filtered by rating_status, newest first."""
