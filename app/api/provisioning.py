@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Generator
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
@@ -21,8 +22,11 @@ router = APIRouter(
 )
 
 
-def get_fusionpbx_client() -> FusionpbxClient:
-    return FusionpbxClient(settings.fusionpbx_db_url)
+def get_fusionpbx_client() -> Generator[FusionpbxClient, None, None]:
+    # Generator dependency so FastAPI calls close()/engine.dispose() after the
+    # response — otherwise each request leaks a connection pool to FusionPBX PG.
+    with FusionpbxClient(settings.fusionpbx_db_url) as client:
+        yield client
 
 
 def _commit(db: Session) -> None:
