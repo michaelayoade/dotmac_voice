@@ -279,6 +279,7 @@ def _include_api_router(router: object, dependencies: list[Any] | None = None) -
 
 
 from app.api.billing import router as billing_router  # noqa: E402
+from app.api.cdr import router as cdr_router  # noqa: E402
 from app.api.deps import require_role  # noqa: E402
 from app.api.file_uploads import router as file_uploads_router  # noqa: E402
 from app.api.notifications import router as notifications_router  # noqa: E402
@@ -327,6 +328,7 @@ _include_api_router(billing_router, dependencies=[Depends(require_role("admin"))
 _include_api_router(file_uploads_router)
 _include_api_router(notifications_router, dependencies=[Depends(require_role("admin"))])
 _include_api_router(provisioning_router)
+_include_api_router(cdr_router)
 _include_api_router(tokens_router)
 app.include_router(ws_router)
 app.include_router(web_auth_router)
