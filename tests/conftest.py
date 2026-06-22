@@ -95,6 +95,7 @@ class MockSettings:
         "image/jpeg,image/png,image/gif,image/webp,application/pdf,text/plain,text/csv"
     )
     metrics_token = None
+    fusionpbx_db_url = "sqlite+pysqlite:///:memory:"
     fusionpbx_api_url = "http://localhost:8080"
     fusionpbx_api_key = "test-key"
     esl_host = "localhost"

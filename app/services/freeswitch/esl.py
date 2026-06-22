@@ -1,8 +1,36 @@
 """ESL bridge for FreeSWITCH event streaming."""
 
+import logging
 from dataclasses import dataclass
 
+logger = logging.getLogger(__name__)
+
 _RELEVANT = {"CHANNEL_CREATE", "CHANNEL_ANSWER", "CHANNEL_HANGUP", "CHANNEL_HANGUP_COMPLETE"}
+
+
+def reloadxml(host: str, port: int, password: str) -> None:  # pragma: no cover - touches a real ESL socket
+    """Trigger a FreeSWITCH ``reloadxml`` over ESL so config writes go live.
+
+    Best-effort: connects to the FreeSWITCH Event Socket, issues ``reloadxml``,
+    and closes the connection. The DB is the source of truth, so callers should
+    treat any failure here as non-fatal.
+
+    Args:
+        host: ESL server host.
+        port: ESL server port.
+        password: ESL server password.
+    """
+    import greenswitch
+
+    conn = greenswitch.InboundESL(host=host, port=port, password=password)
+    conn.connect()
+    try:
+        conn.send("api reloadxml")
+    finally:
+        # greenswitch InboundESL does not expose a public close; drop the socket if present.
+        sock = getattr(conn, "sock", None)
+        if sock is not None:
+            sock.close()
 
 
 @dataclass(frozen=True)

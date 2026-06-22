@@ -22,7 +22,7 @@ router = APIRouter(
 
 
 def get_fusionpbx_client() -> FusionpbxClient:
-    return FusionpbxClient(settings.fusionpbx_api_url, settings.fusionpbx_api_key)
+    return FusionpbxClient(settings.fusionpbx_db_url)
 
 
 def _commit(db: Session) -> None:

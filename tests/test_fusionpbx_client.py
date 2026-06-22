@@ -1,133 +1,233 @@
-"""Tests for FusionPBX REST client."""
+"""Tests for the FusionPBX DB-backed provisioning client.
 
-import httpx
+These exercise the client against an in-memory SQLite engine carrying minimal
+``v_domains`` / ``v_extensions`` tables (TEXT booleans, matching production).
+The ESL reload is always mocked so unit tests never touch a real ESL socket.
+"""
+
+from unittest.mock import MagicMock
+
 import pytest
-import respx
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Engine
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.pool import StaticPool
 
+from app.services.exceptions import ServiceUnavailableError
 from app.services.fusionpbx.client import FusionpbxClient
-from app.services.exceptions import ServiceUnavailableError, BadRequestError
 
 
-class TestListDomains:
-    """Tests for list_domains method."""
-
-    @respx.mock
-    def test_list_domains_returns_parsed(self):
-        """Test list_domains returns parsed response."""
-        respx.get("http://fpbx/api/domains").mock(
-            return_value=httpx.Response(200, json={"domains": [{"name": "a.local"}]})
+@pytest.fixture()
+def fpbx_engine() -> Engine:
+    """In-memory SQLite engine with minimal FusionPBX tables."""
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE v_domains (
+                    domain_uuid TEXT PRIMARY KEY,
+                    domain_name TEXT,
+                    domain_enabled TEXT,
+                    domain_description TEXT,
+                    insert_date TEXT,
+                    insert_user TEXT
+                )
+                """
+            )
         )
-        c = FusionpbxClient("http://fpbx", "k")
-        assert c.list_domains() == [{"name": "a.local"}]
+        conn.execute(
+            text(
+                """
+                CREATE TABLE v_extensions (
+                    extension_uuid TEXT PRIMARY KEY,
+                    domain_uuid TEXT,
+                    extension TEXT,
+                    password TEXT,
+                    accountcode TEXT,
+                    user_context TEXT,
+                    effective_caller_id_name TEXT,
+                    effective_caller_id_number TEXT,
+                    outbound_caller_id_name TEXT,
+                    outbound_caller_id_number TEXT,
+                    call_timeout INTEGER,
+                    enabled TEXT,
+                    directory_first_name TEXT,
+                    description TEXT,
+                    insert_date TEXT,
+                    insert_user TEXT
+                )
+                """
+            )
+        )
+    return engine
 
-    @respx.mock
-    def test_transport_error_raises_service_unavailable(self):
-        """Test transport error raises ServiceUnavailableError."""
-        respx.get("http://fpbx/api/domains").mock(side_effect=httpx.ConnectError("down"))
-        c = FusionpbxClient("http://fpbx", "k")
-        with pytest.raises(ServiceUnavailableError):
-            c.list_domains()
+
+@pytest.fixture()
+def reloader() -> MagicMock:
+    """Mock ESL reload callable."""
+    return MagicMock()
+
+
+@pytest.fixture()
+def client(fpbx_engine: Engine, reloader: MagicMock) -> FusionpbxClient:
+    return FusionpbxClient(engine=fpbx_engine, reloader=reloader)
 
 
 class TestCreateDomain:
-    """Tests for create_domain method."""
+    def test_creates_and_returns_shape(self, client, reloader):
+        result = client.create_domain("a.local")
+        assert result["name"] == "a.local"
+        assert result["domain_uuid"]
+        reloader.assert_called_once()
 
-    @respx.mock
-    def test_create_domain_posts_and_returns_response(self):
-        """Test create_domain posts payload and returns response."""
-        respx.post("http://fpbx/api/domains").mock(
-            return_value=httpx.Response(201, json={"domain_uuid": "123", "name": "test.local"})
-        )
-        c = FusionpbxClient("http://fpbx", "k")
-        result = c.create_domain("test.local")
-        assert result == {"domain_uuid": "123", "name": "test.local"}
+    def test_is_idempotent(self, client, reloader):
+        first = client.create_domain("a.local")
+        reloader.reset_mock()
+        second = client.create_domain("a.local")
+        assert first["domain_uuid"] == second["domain_uuid"]
+        # No insert happened the second time -> no reload.
+        reloader.assert_not_called()
 
-    @respx.mock
-    def test_create_domain_raises_on_400(self):
-        """Test create_domain raises BadRequestError on 4xx."""
-        respx.post("http://fpbx/api/domains").mock(
-            return_value=httpx.Response(400, text="Invalid domain")
-        )
-        c = FusionpbxClient("http://fpbx", "k")
-        with pytest.raises(BadRequestError):
-            c.create_domain("test.local")
+    def test_stores_text_boolean_enabled(self, client, fpbx_engine):
+        client.create_domain("a.local")
+        with fpbx_engine.connect() as conn:
+            enabled = conn.execute(
+                text("SELECT domain_enabled FROM v_domains WHERE domain_name = :n"),
+                {"n": "a.local"},
+            ).scalar_one()
+        assert enabled == "true"
 
-    @respx.mock
-    def test_create_domain_raises_on_transport_error(self):
-        """Test create_domain raises ServiceUnavailableError on transport error."""
-        respx.post("http://fpbx/api/domains").mock(side_effect=httpx.ConnectError("down"))
-        c = FusionpbxClient("http://fpbx", "k")
-        with pytest.raises(ServiceUnavailableError):
-            c.create_domain("test.local")
+
+class TestListDomains:
+    def test_lists_domains(self, client):
+        client.create_domain("a.local")
+        client.create_domain("b.local")
+        names = {d["name"] for d in client.list_domains()}
+        assert names == {"a.local", "b.local"}
+        for d in client.list_domains():
+            assert d["enabled"] == "true"
+            assert d["domain_uuid"]
 
 
 class TestListExtensions:
-    """Tests for list_extensions method."""
+    def test_empty_when_domain_missing(self, client):
+        assert client.list_extensions("missing.local") == []
 
-    @respx.mock
-    def test_list_extensions_returns_parsed(self):
-        """Test list_extensions returns parsed response."""
-        respx.get("http://fpbx/api/domains/example.local/extensions").mock(
-            return_value=httpx.Response(
-                200, json={"extensions": [{"number": "100", "display_name": "Alice"}]}
-            )
-        )
-        c = FusionpbxClient("http://fpbx", "k")
-        result = c.list_extensions("example.local")
-        assert result == [{"number": "100", "display_name": "Alice"}]
-
-    @respx.mock
-    def test_list_extensions_raises_on_transport_error(self):
-        """Test list_extensions raises ServiceUnavailableError on transport error."""
-        respx.get("http://fpbx/api/domains/example.local/extensions").mock(
-            side_effect=httpx.ConnectError("down")
-        )
-        c = FusionpbxClient("http://fpbx", "k")
-        with pytest.raises(ServiceUnavailableError):
-            c.list_extensions("example.local")
+    def test_parses_extensions(self, client):
+        client.create_extension("a.local", "1001", display_name="Alice")
+        client.create_extension("a.local", "1002", display_name="Bob")
+        rows = client.list_extensions("a.local")
+        numbers = {r["number"] for r in rows}
+        assert numbers == {"1001", "1002"}
+        for r in rows:
+            assert r["extension_uuid"]
 
 
 class TestCreateExtension:
-    """Tests for create_extension method."""
+    def test_auto_ensures_domain(self, client, fpbx_engine):
+        # Domain does not exist yet.
+        client.create_extension("new.local", "1001")
+        with fpbx_engine.connect() as conn:
+            count = conn.execute(
+                text("SELECT COUNT(*) FROM v_domains WHERE domain_name = :n"),
+                {"n": "new.local"},
+            ).scalar_one()
+        assert count == 1
 
-    @respx.mock
-    def test_create_extension_posts_and_returns_response(self):
-        """Test create_extension posts payload and returns response."""
-        respx.post("http://fpbx/api/domains/example.local/extensions").mock(
-            return_value=httpx.Response(
-                201, json={"extension_uuid": "456", "number": "101", "display_name": "Bob"}
-            )
-        )
-        c = FusionpbxClient("http://fpbx", "k")
-        result = c.create_extension("example.local", "101", "secret123", "Bob")
-        assert result == {"extension_uuid": "456", "number": "101", "display_name": "Bob"}
+    def test_generates_password_when_empty(self, client):
+        result = client.create_extension("a.local", "1001", password="")
+        assert result["password"]
+        assert len(result["password"]) >= 16
 
-    @respx.mock
-    def test_create_extension_raises_on_400(self):
-        """Test create_extension raises BadRequestError on 4xx."""
-        respx.post("http://fpbx/api/domains/example.local/extensions").mock(
-            return_value=httpx.Response(400, text="Invalid extension")
-        )
-        c = FusionpbxClient("http://fpbx", "k")
-        with pytest.raises(BadRequestError):
-            c.create_extension("example.local", "101", "secret123", "Bob")
+    def test_passes_through_provided_password(self, client):
+        result = client.create_extension("a.local", "1001", password="hunter2")
+        assert result["password"] == "hunter2"
 
-    @respx.mock
-    def test_create_extension_raises_on_transport_error(self):
-        """Test create_extension raises ServiceUnavailableError on transport error."""
-        respx.post("http://fpbx/api/domains/example.local/extensions").mock(
-            side_effect=httpx.ConnectError("down")
-        )
-        c = FusionpbxClient("http://fpbx", "k")
+    def test_sets_convention_columns(self, client, fpbx_engine):
+        client.create_extension("a.local", "1001", display_name="Alice")
+        with fpbx_engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT accountcode, user_context, enabled, call_timeout, "
+                    "effective_caller_id_name, effective_caller_id_number "
+                    "FROM v_extensions WHERE extension = :e"
+                ),
+                {"e": "1001"},
+            ).one()
+        assert row.accountcode == "a.local"
+        assert row.user_context == "a.local"
+        assert row.enabled == "true"
+        assert row.call_timeout == 30
+        assert row.effective_caller_id_name == "Alice"
+        assert row.effective_caller_id_number == "1001"
+
+    def test_is_idempotent(self, client, reloader):
+        first = client.create_extension("a.local", "1001", password="hunter2")
+        reloader.reset_mock()
+        second = client.create_extension("a.local", "1001", password="ignored")
+        assert first["extension_uuid"] == second["extension_uuid"]
+        # Existing extension returned unchanged, including original password.
+        assert second["password"] == "hunter2"
+        reloader.assert_not_called()
+
+    def test_returns_shape(self, client):
+        result = client.create_extension("a.local", "1001")
+        assert set(result) >= {"number", "extension_uuid", "password"}
+        assert result["number"] == "1001"
+
+    def test_triggers_reload_on_write(self, client, reloader):
+        client.create_extension("a.local", "1001")
+        reloader.assert_called()
+
+
+class TestErrorMapping:
+    def test_operational_error_maps_to_service_unavailable(self, reloader):
+        engine = create_engine("sqlite+pysqlite:///:memory:", poolclass=StaticPool)
+        # No tables created -> querying v_domains raises OperationalError,
+        # which the client must map to ServiceUnavailableError.
+        c = FusionpbxClient(engine=engine, reloader=reloader)
         with pytest.raises(ServiceUnavailableError):
-            c.create_extension("example.local", "101", "secret123", "Bob")
+            c.list_domains()
+        with pytest.raises(ServiceUnavailableError):
+            c.create_domain("a.local")
+        reloader.assert_not_called()
+
+    def test_unhandled_operational_error_is_operationalerror(self):
+        # Sanity: confirm the underlying driver does raise OperationalError so
+        # the mapping above is meaningful.
+        engine = create_engine("sqlite+pysqlite:///:memory:", poolclass=StaticPool)
+        with pytest.raises(OperationalError), engine.connect() as conn:
+            conn.execute(text("SELECT * FROM v_domains"))
 
 
 class TestContextManager:
-    """Tests for context manager support."""
+    def test_context_manager_disposes_owned_engine(self):
+        with FusionpbxClient("sqlite+pysqlite:///:memory:", reloader=MagicMock()) as c:
+            assert isinstance(c._engine, Engine)
 
-    def test_client_context_manager_closes(self):
-        """Test context manager properly closes client."""
-        with FusionpbxClient("http://fpbx", "k") as c:
-            assert c._client.is_closed is False
-        assert c._client.is_closed is True
+    def test_does_not_dispose_injected_engine(self, fpbx_engine, reloader):
+        c = FusionpbxClient(engine=fpbx_engine, reloader=reloader)
+        c.close()
+        # Injected engine still usable after close().
+        with fpbx_engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+
+    def test_requires_db_url_or_engine(self):
+        with pytest.raises(ValueError):
+            FusionpbxClient()
+
+
+class TestReloadIsNonFatal:
+    def test_reload_failure_does_not_break_write(self, fpbx_engine):
+        def boom() -> None:
+            raise RuntimeError("ESL down")
+
+        c = FusionpbxClient(engine=fpbx_engine, reloader=boom)
+        # Write succeeds despite the reloader raising.
+        result = c.create_domain("a.local")
+        assert result["name"] == "a.local"

@@ -86,6 +86,12 @@ class Settings:
     )
 
     # Voice settings
+    # FusionPBX has no REST provisioning API; we write directly to its PostgreSQL DB.
+    fusionpbx_db_url: str = os.getenv(
+        "FUSIONPBX_DB_URL",
+        "postgresql+psycopg://fusionpbx:fusionpbx@localhost:5432/fusionpbx",
+    )
+    # Deprecated: kept for backwards-compat, no longer used by FusionpbxClient.
     fusionpbx_api_url: str = os.getenv("FUSIONPBX_API_URL", "http://localhost:8080")
     fusionpbx_api_key: str = os.getenv("FUSIONPBX_API_KEY", "")
     esl_host: str = os.getenv("ESL_HOST", "localhost")
