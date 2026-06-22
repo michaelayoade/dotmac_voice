@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 
 
@@ -5,15 +6,35 @@ from dataclasses import dataclass
 class DialPolicy:
     allowed_destinations: tuple[str, ...] | None = None  # if set, ONLY these exact destinations allowed (caged scope, e.g. ("support",))
     allow_international: bool = False
-    blocked_prefixes: tuple[str, ...] = ()               # premium-rate / blocked number prefixes (deny)
+    blocked_prefixes: tuple[str, ...] = ()               # premium-rate / blocked number prefixes; MUST be plain digit strings e.g. "234900"
     domestic_cc: str = "234"                              # Nigeria; numbers starting with this (or local) are domestic
 
 
 @dataclass(frozen=True)
 class DialDecision:
     allowed: bool
-    reason: str          # machine code: "ok" | "not_in_allowlist" | "international_blocked" | "blocked_prefix"
-    classification: str  # "internal" | "support" | "domestic" | "international"
+    reason: str          # machine code: "ok" | "not_in_allowlist" | "invalid_destination" | "blocked_prefix" | "international_blocked"
+    classification: str  # "internal" | "support" | "domestic" | "international" | "invalid"
+
+
+def _normalize(destination: str) -> tuple[str, str]:
+    """Return (kind, digits).
+
+    kind is 'intl' if an international escape (+ or 00) is present, else 'national'.
+    digits has ALL non-digit characters removed (spaces, dashes, parens, dots, +).
+
+    International escapes on this platform are ONLY '+' and '00'.
+    A leading single '0' (e.g. '08012345678', '012345678', '011...') is the
+    Nigerian national trunk prefix and is classified as 'national', not international.
+    """
+    s = destination.strip()
+    has_plus = s.startswith("+")
+    digits = re.sub(r"\D", "", s)
+    if has_plus:
+        return ("intl", digits)        # digits = country code + subscriber number
+    if digits.startswith("00"):
+        return ("intl", digits[2:])    # 00 = Nigerian international access code; strip it
+    return ("national", digits)
 
 
 def classify_destination(
@@ -22,46 +43,43 @@ def classify_destination(
     domestic_cc: str = "234",
     support_names: tuple[str, ...] = ("support",),
 ) -> str:
-    """Classify a destination as one of: support, internal, domestic, international."""
-    # Support name check
-    if destination in support_names:
+    """Classify a destination as one of: support, internal, domestic, international, invalid.
+
+    Normalization is applied before classification so that formatting characters
+    (spaces, dashes, parens, dots) cannot bypass the international check.
+    """
+    # Support name check (exact match on stripped raw value)
+    if destination.strip() in support_names:
         return "support"
 
-    # Internal extension: all digits, 6 or fewer characters
-    if destination.isdigit() and len(destination) <= 6:
-        return "internal"
+    kind, digits = _normalize(destination)
 
-    # Normalize and classify numeric destinations
-    # Strip leading +/00 to check the country code
-    normalized = destination.lstrip("+")
-    if normalized.startswith("00"):
-        normalized = normalized[2:]
+    # No usable digits → invalid
+    if not digits:
+        return "invalid"
 
-    # Check if it starts with domestic country code
-    if normalized.startswith(domestic_cc):
-        # If the original had +/00, it's international format but domestic number
-        if destination.startswith("+") or destination.startswith("00"):
-            return "domestic"
-        # Otherwise it's a domestic number
-        return "domestic"
+    if kind == "intl":
+        # International escape present: domestic only if CC matches
+        return "domestic" if digits.startswith(domestic_cc) else "international"
 
-    # If it starts with + or 00, it's international (country code is not domestic)
-    if destination.startswith("+") or destination.startswith("00"):
-        return "international"
-
-    # Long numeric numbers without prefix default to domestic
-    if destination.isdigit() and len(destination) > 6:
-        return "domestic"
-
-    # Default to domestic
-    return "domestic"
+    # National: short = internal extension, long = domestic
+    return "internal" if len(digits) <= 6 else "domestic"
 
 
 def check_dial(destination: str, policy: DialPolicy) -> DialDecision:
-    """Check if a dial is permitted under the given policy."""
+    """Check if a dial is permitted under the given policy.
+
+    Evaluation order (security-critical; do not reorder):
+    1. Scope caging (allowed_destinations) — DENY not_in_allowlist
+    2. Classify destination
+    3. Invalid destination — DENY invalid_destination (fail closed)
+    4. Blocked prefixes (matched on normalized digits) — DENY blocked_prefix
+    5. International restriction — DENY international_blocked
+    6. ALLOW ok
+    """
     # 1. Scope caging check FIRST (overrides everything)
     if policy.allowed_destinations is not None:
-        if destination not in policy.allowed_destinations:
+        if destination.strip() not in policy.allowed_destinations:
             classification = classify_destination(
                 destination, domestic_cc=policy.domestic_cc
             )
@@ -72,20 +90,30 @@ def check_dial(destination: str, policy: DialPolicy) -> DialDecision:
             )
 
     # 2. Classify the destination
-    classification = classify_destination(
-        destination, domestic_cc=policy.domestic_cc
-    )
+    classification = classify_destination(destination, domestic_cc=policy.domestic_cc)
 
-    # 3. Check blocked prefixes
-    for prefix in policy.blocked_prefixes:
-        if destination.startswith(prefix):
-            return DialDecision(
-                allowed=False,
-                reason="blocked_prefix",
-                classification=classification,
-            )
+    # 3. Fail closed on invalid destinations
+    if classification == "invalid":
+        return DialDecision(
+            allowed=False,
+            reason="invalid_destination",
+            classification=classification,
+        )
 
-    # 4. Check international restriction
+    # 4. Check blocked prefixes on normalized digits
+    # blocked_prefixes must be supplied as plain digit strings (e.g. "234900").
+    # We use _normalize so that 00-prefixed international numbers match the same
+    # digit prefix as their + equivalents (e.g. "00234900..." and "+234900..."
+    # both normalize to digits starting "234900").
+    _, norm_digits = _normalize(destination)
+    if any(norm_digits.startswith(p) for p in policy.blocked_prefixes):
+        return DialDecision(
+            allowed=False,
+            reason="blocked_prefix",
+            classification=classification,
+        )
+
+    # 5. Check international restriction
     if classification == "international" and not policy.allow_international:
         return DialDecision(
             allowed=False,
@@ -93,7 +121,7 @@ def check_dial(destination: str, policy: DialPolicy) -> DialDecision:
             classification=classification,
         )
 
-    # 5. All checks passed
+    # 6. All checks passed
     return DialDecision(
         allowed=True,
         reason="ok",

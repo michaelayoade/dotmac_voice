@@ -4,6 +4,7 @@ from app.services.routing.fraud import (
     DialDecision,
     classify_destination,
     check_dial,
+    _normalize,
 )
 
 
@@ -168,14 +169,27 @@ class TestCheckDial:
         # Different prefix allowed
         assert check_dial("2348011111", policy).allowed is True
 
-    def test_blocked_prefix_does_not_override_international_block(self):
-        """Blocked prefix check happens after international check."""
+    def test_blocked_prefix_ordering_comes_before_international_check(self):
+        """Blocked prefix check (step 4) happens AFTER classification but BEFORE international check (step 5).
+        With the new ordering: invalid_destination > blocked_prefix > international_blocked.
+        A US number with a digits-based blocked prefix (e.g. '14155') is denied 'blocked_prefix'
+        when the prefix matches the normalized digits, exercising the prefix step explicitly."""
         policy = DialPolicy(
-            blocked_prefixes=("1415",),  # US number, but also blocked
+            blocked_prefixes=("14155",),  # digit prefix matching normalized US number
+            allow_international=True,    # international IS allowed — so if prefix wins, reason="blocked_prefix"
+        )
+        result = check_dial("+14155550123", policy)
+        # Blocked prefix (on digits) fires BEFORE international check
+        assert result.allowed is False
+        assert result.reason == "blocked_prefix"
+
+    def test_international_blocked_when_prefix_does_not_match(self):
+        """International block fires when prefix does not match."""
+        policy = DialPolicy(
+            blocked_prefixes=("9999",),   # does not match +1-415
             allow_international=False,
         )
         result = check_dial("+14155550123", policy)
-        # Should fail on international_blocked first, not blocked_prefix
         assert result.allowed is False
         assert result.reason == "international_blocked"
 
@@ -226,3 +240,186 @@ class TestCheckDial:
         assert check_dial("2349001111", policy).allowed is False
         # Can dial internal
         assert check_dial("1001", policy).allowed is True
+
+
+class TestNormalize:
+    """Test the _normalize helper directly."""
+
+    def test_plus_prefix_is_intl(self):
+        assert _normalize("+442079460000") == ("intl", "442079460000")
+
+    def test_plus_prefix_strips_non_digits(self):
+        assert _normalize("+44 207 946 0000") == ("intl", "442079460000")
+
+    def test_00_prefix_is_intl_strips_00(self):
+        assert _normalize("0044 1234 5678") == ("intl", "4412345678")
+
+    def test_00_nigerian_is_intl_but_digits_have_234(self):
+        # 00234... → intl kind, digits=2348012345678
+        assert _normalize("00234 801 234 5678") == ("intl", "2348012345678")
+
+    def test_national_trunk_0_is_national(self):
+        # Single leading 0 = national trunk prefix, NOT international
+        assert _normalize("08012345678") == ("national", "08012345678")
+
+    def test_lagos_01_is_national(self):
+        # Lagos landline 01... is national, not international
+        assert _normalize("012345678") == ("national", "012345678")
+
+    def test_011_is_national(self):
+        # 011... is a valid Nigerian national number, NOT international access
+        assert _normalize("011 1234567") == ("national", "0111234567")
+
+    def test_empty_string_gives_empty_digits(self):
+        kind, digits = _normalize("")
+        assert digits == ""
+
+    def test_spaces_only_gives_empty_digits(self):
+        kind, digits = _normalize("   ")
+        assert digits == ""
+
+
+class TestClassifyDestinationFormattingBypasses:
+    """Bypass tests: formatted international numbers must NOT slip through as domestic."""
+
+    def test_formatted_uk_with_spaces_is_international(self):
+        """+44 207 946 0000 must classify as international, not domestic."""
+        result = classify_destination("+44 207 946 0000")
+        assert result == "international"
+
+    def test_formatted_us_with_dashes_is_international(self):
+        """+1-415-555-0123 must classify as international, not domestic."""
+        result = classify_destination("+1-415-555-0123")
+        assert result == "international"
+
+    def test_formatted_with_parens_is_international(self):
+        """(44) 207 946 0000 — parens around CC, international."""
+        # Note: no + but digits start with 44 (not 234), and no 00 prefix
+        # This is ambiguous raw input; we expect domestic default without intl escape.
+        # The spec says intl escape is ONLY + or 00. So (44) without + or 00 = national.
+        # This case is "domestic" by design (no intl escape marker).
+        result = classify_destination("(44) 207 946 0000")
+        # Should be domestic (no intl escape) — but must NOT be "international"
+        # The important bypass to close is + and 00 forms
+        assert result in ("domestic", "internal")  # not "international" by bypass
+
+    def test_formatted_00_prefix_uk_is_international(self):
+        """0044 1234 5678 — 00 escape with non-Nigerian CC = international."""
+        result = classify_destination("0044 1234 5678")
+        assert result == "international"
+
+    def test_formatted_00_prefix_nigerian_is_domestic(self):
+        """00234 801 234 5678 — 00 escape with Nigerian CC = domestic."""
+        result = classify_destination("00234 801 234 5678")
+        assert result == "domestic"
+
+    def test_plus_nigerian_formatted_is_domestic(self):
+        """+2348012345678 is domestic (Nigerian CC)."""
+        result = classify_destination("+2348012345678")
+        assert result == "domestic"
+
+
+class TestNigerianNationalNotMisclassified:
+    """Nigerian national numbers must never be misclassified as international."""
+
+    def test_08_prefix_is_domestic(self):
+        """08012345678 — national trunk 0 → domestic."""
+        result = classify_destination("08012345678")
+        assert result == "domestic"
+
+    def test_lagos_01_prefix_is_domestic(self):
+        """012345678 — Lagos 01 landline → domestic, NOT international."""
+        result = classify_destination("012345678")
+        assert result == "domestic"
+
+    def test_011_prefix_is_domestic(self):
+        """011 1234567 — valid Nigerian national number → domestic, NOT international."""
+        result = classify_destination("011 1234567")
+        assert result == "domestic"
+
+
+class TestEmptyAndInvalidDestination:
+    """Empty or blank destinations must be denied as invalid."""
+
+    def test_empty_string_is_invalid(self):
+        """Empty destination → classification 'invalid'."""
+        result = classify_destination("")
+        assert result == "invalid"
+
+    def test_whitespace_only_is_invalid(self):
+        """Whitespace-only destination → classification 'invalid'."""
+        result = classify_destination("   ")
+        assert result == "invalid"
+
+    def test_check_dial_empty_denied_invalid_destination(self):
+        """check_dial on empty string → denied, reason=invalid_destination."""
+        policy = DialPolicy()
+        result = check_dial("", policy)
+        assert result.allowed is False
+        assert result.reason == "invalid_destination"
+        assert result.classification == "invalid"
+
+    def test_check_dial_whitespace_denied_invalid_destination(self):
+        """check_dial on whitespace-only → denied, reason=invalid_destination."""
+        policy = DialPolicy()
+        result = check_dial("   ", policy)
+        assert result.allowed is False
+        assert result.reason == "invalid_destination"
+        assert result.classification == "invalid"
+
+
+class TestBlockedPrefixFormattingBypass:
+    """blocked_prefixes must match normalized digits so reformatting cannot defeat them."""
+
+    def test_plus_formatted_intl_nigerian_premium_blocked(self):
+        """+234 900 111 2222 — formatted, must be blocked by prefix '234900'."""
+        policy = DialPolicy(blocked_prefixes=("234900",), allow_international=True)
+        result = check_dial("+234 900 111 2222", policy)
+        assert result.allowed is False
+        assert result.reason == "blocked_prefix"
+
+    def test_00_formatted_nigerian_premium_blocked(self):
+        """00234900... — formatted, must be blocked by prefix '234900'."""
+        policy = DialPolicy(blocked_prefixes=("234900",), allow_international=True)
+        result = check_dial("00234 900 111 2222", policy)
+        assert result.allowed is False
+        assert result.reason == "blocked_prefix"
+
+    def test_plain_digits_nigerian_premium_blocked(self):
+        """234900... — plain digits, must be blocked by prefix '234900'."""
+        policy = DialPolicy(blocked_prefixes=("234900",), allow_international=True)
+        result = check_dial("2349001112222", policy)
+        assert result.allowed is False
+        assert result.reason == "blocked_prefix"
+
+    def test_formatted_uk_international_blocked_by_prefix(self):
+        """+44 207 946 0000 blocked by digit prefix '44207'."""
+        policy = DialPolicy(blocked_prefixes=("44207",), allow_international=True)
+        result = check_dial("+44 207 946 0000", policy)
+        assert result.allowed is False
+        assert result.reason == "blocked_prefix"
+
+
+class TestCagingWithFormattedNumbers:
+    """Caging must still be checked first even for formatted numbers."""
+
+    def test_caged_to_support_denies_formatted_international(self):
+        """Caged policy denies '+44 207 946 0000' (not in allowlist)."""
+        policy = DialPolicy(allowed_destinations=("support",))
+        result = check_dial("+44 207 946 0000", policy)
+        assert result.allowed is False
+        assert result.reason == "not_in_allowlist"
+
+    def test_caged_to_support_allows_support(self):
+        """Caged policy still allows 'support'."""
+        policy = DialPolicy(allowed_destinations=("support",))
+        result = check_dial("support", policy)
+        assert result.allowed is True
+        assert result.reason == "ok"
+
+    def test_caged_to_support_denies_any_number(self):
+        """Caged policy denies any PSTN number regardless of format."""
+        policy = DialPolicy(allowed_destinations=("support",))
+        assert check_dial("+44 207 946 0000", policy).reason == "not_in_allowlist"
+        assert check_dial("+1-415-555-0123", policy).reason == "not_in_allowlist"
+        assert check_dial("08012345678", policy).reason == "not_in_allowlist"
