@@ -157,6 +157,7 @@ from app.models.billing import (
     WebhookEventStatus,
 )
 from app.models.voice import VoiceDomain, Extension, SyncStatus, Cdr, CdrRatingStatus  # noqa: F401
+from app.models import webhook  # noqa: F401
 
 # Create all tables
 TestBase.metadata.create_all(_test_engine)
