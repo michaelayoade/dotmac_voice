@@ -31,10 +31,29 @@ def get_esl_bridge() -> EslBridge:
 
 
 class DialRequest(BaseModel):
-    agent_extension: str = Field(..., min_length=1)
-    destination: str = Field(..., min_length=1)
-    domain: str = Field(..., min_length=1)
-    caller_id_number: str = ""
+    agent_extension: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_.-]+$",
+    )
+    destination: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9+*#_.-]+$",
+    )
+    domain: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        pattern=r"^[A-Za-z0-9.-]+$",
+    )
+    caller_id_number: str = Field(
+        default="",
+        max_length=32,
+        pattern=r"^[0-9+]*$",
+    )
     allow_international: bool = False
     allowed_destinations: list[str] | None = None
     blocked_prefixes: list[str] = []
@@ -91,5 +110,4 @@ def dial(
     return {
         "status": "originating",
         "classification": decision.classification,
-        "command": command,
     }

@@ -82,7 +82,10 @@ def dial_client(db_session, fake_esl):
 
 
 def test_dial_allowed_domestic_originates(dial_client, fake_esl):
-    """Domestic call is allowed: ESL originate is invoked once with the correct command."""
+    """Domestic call is allowed: ESL originate is invoked once with the correct command.
+
+    The response must NOT leak the ESL command string; verify the command via the fake ESL.
+    """
     resp = dial_client.post(
         "/calls/dial",
         json={
@@ -96,8 +99,9 @@ def test_dial_allowed_domestic_originates(dial_client, fake_esl):
     body = resp.json()
     assert body["status"] == "originating"
     assert body["classification"] == "domestic"
+    # Response must NOT include the internal ESL command (security: no SIP URI leakage).
+    assert "command" not in body
     expected_cmd = "bgapi originate user/1001@c1.local 08012345678 XML default"
-    assert body["command"] == expected_cmd
     assert len(fake_esl.calls) == 1
     assert fake_esl.calls[0] == expected_cmd
 
@@ -152,3 +156,54 @@ def test_dial_requires_ingress(dial_client):
         # No X-API-Key header
     )
     assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Security: ESL command-string injection tests
+# ---------------------------------------------------------------------------
+
+
+def test_dial_rejects_injection_in_agent_extension(dial_client, fake_esl):
+    """agent_extension with whitespace/newline injects a second ESL command → 422, ESL not called."""
+    resp = dial_client.post(
+        "/calls/dial",
+        json={
+            "agent_extension": "1001 XML default\nbgapi originate user/evil@x 900 XML default",
+            "destination": "08012345678",
+            "domain": "c1.local",
+        },
+        headers=HEADERS,
+    )
+    assert resp.status_code == 422
+    assert fake_esl.calls == []
+
+
+def test_dial_rejects_injection_in_domain(dial_client, fake_esl):
+    """domain with a space → 422, ESL not called."""
+    resp = dial_client.post(
+        "/calls/dial",
+        json={
+            "agent_extension": "1001",
+            "destination": "08012345678",
+            "domain": "c1.local foo",
+        },
+        headers=HEADERS,
+    )
+    assert resp.status_code == 422
+    assert fake_esl.calls == []
+
+
+def test_dial_rejects_bad_caller_id(dial_client, fake_esl):
+    """caller_id_number with non-digit/non-plus chars → 422, ESL not called."""
+    resp = dial_client.post(
+        "/calls/dial",
+        json={
+            "agent_extension": "1001",
+            "destination": "08012345678",
+            "domain": "c1.local",
+            "caller_id_number": "123 abc",
+        },
+        headers=HEADERS,
+    )
+    assert resp.status_code == 422
+    assert fake_esl.calls == []
