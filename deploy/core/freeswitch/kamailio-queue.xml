@@ -1,0 +1,11 @@
+<extension name="kamailio-queue-5000" continue="false">
+  <condition field="${network_addr}" expression="^10\.10\.10\.1$"/>
+  <condition field="destination_number" expression="^(5000)$">
+    <action application="export" data="rtp_timeout_sec=120"/>
+    <action application="log" data="INFO voice-edge: queue 5000 (callcenter)"/>
+    <action application="answer"/>
+    <action application="sleep" data="500"/>
+    <action application="callcenter" data="5000@voicetest.dotmac"/>
+    <action application="hangup"/>
+  </condition>
+</extension>

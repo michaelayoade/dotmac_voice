@@ -184,3 +184,15 @@ Created extension 1003 (3rd member) for multi-party tests.
 
 ## Tested-working features (FS-in-path): registration, internal call (direct+through-FS), TURN,
 ## voicemail+portal row, teardown, multi-domain, CDR, **call recording**, **conference**, **ring group**.
+
+## Call-center queue (5000) — distribution WORKS, media bridge WIP (2026-06-24)
+mod_callcenter loaded. Queue 5000 + agents 1002/1003 (callback, dial via user/<ext> -> Kamailio).
+Setup gotchas: (1) queue name in callcenter.conf = `queue_name@domain` (set queue_name='5000', NOT
+queue_extension); (2) config cache key uses a COLON `configuration:callcenter.conf` (flush with
+`find /var/cache/fusionpbx -iname '*callcenter*' -delete`); (3) agents/tiers are loaded via runtime
+`callcenter_config agent add <uuid> / tier add <ext>@<domain> <uuid>` (NOT persisted across FS
+restart — FusionPBX re-applies via a job; raw setup needs re-running queue load + agent/tier adds).
+VERIFIED: 1001->5000 queued, agent 1003 rung via the unlock + answered. OPEN: caller<->agent media
+is one-way (both WS legs send to FS, neither receives back) — needs per-leg rtpengine debugging in
+the callcenter bridge (same class as the original FS-in-path media work; also gates hold/transfer
+in-dialog re-INVITE handling). Files: queue-setup.sql, kamailio-queue.xml.
