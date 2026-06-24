@@ -62,9 +62,13 @@ def reconcile_voice(db: Session, client, customer_id: str) -> SyncStatus:
     Raises:
         NotFoundError: If no VoiceDomain exists for customer_id
     """
-    # Fetch domain
+    # Fetch domain. with_for_update locks the row for this transaction so two
+    # concurrent reconciles for the same customer serialize instead of racing on
+    # the create/delete deltas (Postgres row lock; SQLite ignores it).
     domain = db.scalar(
-        select(VoiceDomain).where(VoiceDomain.customer_id == customer_id)
+        select(VoiceDomain)
+        .where(VoiceDomain.customer_id == customer_id)
+        .with_for_update()
     )
     if not domain:
         raise NotFoundError(f"No voice domain for customer {customer_id}")
