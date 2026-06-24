@@ -208,3 +208,16 @@ in-dialog re-INVITE handling). Files: queue-setup.sql, kamailio-queue.xml.
   because it's a DIRECT bridge (no pre-answer-into-queue, no callback re-anchor). Needs deeper
   mod_callcenter media handling (bypass/proxy flags or a non-pre-answer queue pattern) OR validation
   with a real softphone (may be specific to the synthetic webphone's re-negotiation handling).
+
+## (b) softphone DTMF path + IVR (2026-06-24) — CERTIFIED
+The headless harness can't use the webphone's SIP lib for REFER/hold/SUBSCRIBE, but DTMF is
+browser-native: `pc.getSenders().find(audio).dtmf.insertDTMF('1')` (RTCDTMFSender) sends RFC2833
+telephone-event through rtpengine to FS. This is the "softphone DTMF" capability.
+IVR 4000: answer -> play_and_get_digits (greeting ivr-enter_ext_pound.wav) -> 1->ext1002, 2->conf3001
+-> transfer to public (re-enters kamailio-internal-to-domain / kamailio-conference).
+VERIFIED end-to-end: greeting plays (caller rx92), DTMF '1' sent + collected (FS play_and_get_digits),
+routed to 1002, call TWO-WAY (1001 rx430/tx357, 1002 rx192/tx320). IVR->ext uses the DIRECT bridge so
+it works two-way (unlike the mod_callcenter queue callback-bridge).
+
+## STILL needing a full softphone (SIP-lib API, not RTCDTMFSender): attended/blind transfer (REFER),
+## hold/resume (re-INVITE), BLF/presence (SUBSCRIBE). Queue caller<->agent media (mod_callcenter).
