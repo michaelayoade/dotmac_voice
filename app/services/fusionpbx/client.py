@@ -534,6 +534,61 @@ class FusionpbxClient:
             self._reload()
         return {"name": name, "created": changed}
 
+    def ensure_routing(
+        self, domain_name: str, *, recording: bool = False, ext_pattern: str = r"1\d{3}"
+    ) -> dict:
+        """Idempotently ensure the FS-in-path internal-extension routing dialplan.
+
+        WS-extension calls (from Kamailio) bridge to sofia/external (-> Kamailio ->
+        WS callee) with a no-answer voicemail fallback. ``recording=True`` records
+        the call (deferred via execute_on_answer so it doesn't pre-answer the leg).
+        Verbatim from deploy/core/freeswitch/kamailio-internal-to-domain.xml.
+        """
+        rec = ""
+        if recording:
+            rec = (
+                '    <action application="set" data="RECORD_STEREO=true"/>\n'
+                '    <action application="set" data="execute_on_answer=record_session '
+                "/var/lib/freeswitch/recordings/${sip_req_host}/"
+                '${strftime(%Y-%m-%d)}/${uuid}.wav"/>\n'
+            )
+        xml = (
+            '<extension name="kamailio-internal-to-domain" continue="false">\n'
+            '  <condition field="${network_addr}" expression="^10\\.10\\.10\\.1$"/>\n'
+            '  <condition field="destination_number" expression="^(' + ext_pattern + ')$">\n'
+            '    <action application="set" data="hangup_after_bridge=true"/>\n'
+            '    <action application="set" data="continue_on_fail=true"/>\n'
+            '    <action application="export" data="rtp_timeout_sec=30"/>\n'
+            '    <action application="export" data="rtp_hold_timeout_sec=1800"/>\n'
+            + rec
+            + '    <action application="bridge" data="{sip_h_X-Voice-Domain=${sip_req_host}}'
+            'sofia/external/${destination_number}@10.10.10.1:5060"/>\n'
+            '    <action application="answer"/>\n'
+            '    <action application="sleep" data="1000"/>\n'
+            '    <action application="set" data="voicemail_action=save"/>\n'
+            '    <action application="set" data="voicemail_id=${destination_number}"/>\n'
+            '    <action application="set" data="voicemail_profile=default"/>\n'
+            '    <action application="set" data="send_to_voicemail=true"/>\n'
+            '    <action application="set" data="domain_name=${sip_req_host}"/>\n'
+            '    <action application="lua" data="app.lua voicemail"/>\n'
+            "  </condition>\n"
+            "</extension>"
+        )
+        changed = False
+        try:
+            with self._engine.begin() as conn:
+                self._ensure_domain(conn, domain_name)
+                changed = self._ensure_dialplan(
+                    conn, name="kamailio-internal-to-domain", number="", order=50, xml=xml
+                )
+        except _UNAVAILABLE as exc:
+            raise ServiceUnavailableError(f"FusionPBX DB unreachable: {exc}") from exc
+        except IntegrityError as exc:
+            raise BadRequestError(f"FusionPBX routing insert failed: {exc}") from exc
+        if changed:
+            self._reload()
+        return {"name": "kamailio-internal-to-domain", "created": changed}
+
     def create_ivr(
         self,
         domain_name: str,

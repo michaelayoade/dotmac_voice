@@ -395,3 +395,26 @@ class TestCreateIvr:
         assert "^[12]$" in xml
         assert "${ivr_choice} == 1 ? 1002" in xml
         assert 'data="${ivr_target} XML public"' in xml
+
+
+class TestEnsureRouting:
+    def test_creates_internal_routing(self, client, fpbx_engine):
+        result = client.ensure_routing("a.local")
+        assert result["created"] is True
+        with fpbx_engine.connect() as conn:
+            xml = conn.execute(
+                text("SELECT dialplan_xml FROM v_dialplans WHERE dialplan_name = :n"),
+                {"n": "kamailio-internal-to-domain"},
+            ).scalar_one()
+        assert "sofia/external/${destination_number}@10.10.10.1:5060" in xml
+        assert "app.lua voicemail" in xml  # no-answer voicemail fallback
+        assert "record_session" not in xml  # recording off by default
+
+    def test_recording_adds_record_session(self, client, fpbx_engine):
+        client.ensure_routing("a.local", recording=True)
+        with fpbx_engine.connect() as conn:
+            xml = conn.execute(
+                text("SELECT dialplan_xml FROM v_dialplans WHERE dialplan_name = :n"),
+                {"n": "kamailio-internal-to-domain"},
+            ).scalar_one()
+        assert "execute_on_answer=record_session" in xml
