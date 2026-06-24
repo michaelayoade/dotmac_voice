@@ -70,10 +70,20 @@ class TestEslConsumer:
     def test_run_once_connects_and_installs_handler(self):
         bridge = FakeBridge(alive=False)  # serve loop exits immediately
         handler = object()
-        c = EslConsumer(bridge_factory=lambda: bridge, handler=handler)
+        c = EslConsumer(bridge_factory=lambda: bridge, handler=handler, lock_path=None)
         c.run_once()
         assert bridge.connected is True
         assert bridge.handler is handler
+
+    def test_singleton_lock_blocks_second_consumer(self, tmp_path):
+        lock = str(tmp_path / "esl.lock")
+        c1 = EslConsumer(bridge_factory=lambda: FakeBridge(), handler=lambda e: None, lock_path=lock)
+        c2 = EslConsumer(bridge_factory=lambda: FakeBridge(), handler=lambda e: None, lock_path=lock)
+        assert c1._acquire_lock() is True
+        assert c2._acquire_lock() is False  # c1 holds the lock
+        c1._release_lock()
+        assert c2._acquire_lock() is True  # freed -> failover
+        c2._release_lock()
 
     def test_run_reconnects_on_failure(self):
         attempts = {"n": 0}
@@ -85,7 +95,7 @@ class TestEslConsumer:
                 c_ref["c"].stop()  # break the loop after the second attempt
             raise RuntimeError("connect failed")
 
-        c = EslConsumer(bridge_factory=factory, handler=lambda e: None, backoff_seconds=0.01)
+        c = EslConsumer(bridge_factory=factory, handler=lambda e: None, backoff_seconds=0.01, lock_path=None)
         c_ref["c"] = c
         c._run()
         assert attempts["n"] >= 2  # it retried after the first failure
@@ -97,7 +107,7 @@ class TestEslConsumer:
             started.set()
             return FakeBridge(alive=True)
 
-        c = EslConsumer(bridge_factory=factory, handler=lambda e: None, backoff_seconds=0.01)
+        c = EslConsumer(bridge_factory=factory, handler=lambda e: None, backoff_seconds=0.01, lock_path=None)
         c.start()
         assert started.wait(2.0)
         c.stop(timeout=2.0)

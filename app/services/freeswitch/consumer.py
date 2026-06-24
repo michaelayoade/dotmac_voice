@@ -9,6 +9,7 @@ did). Runs in a daemon thread and reconnects with backoff. ESL stays bound to
 """
 from __future__ import annotations
 
+import fcntl
 import logging
 import threading
 from collections.abc import Callable
@@ -21,6 +22,11 @@ from app.services.freeswitch.esl import CallEvent, EslBridge
 logger = logging.getLogger(__name__)
 
 DEFAULT_RECONNECT_BACKOFF_SECONDS = 5.0
+# All consumers across gunicorn workers in this container coordinate via a file
+# lock so exactly ONE streams ESL events (otherwise every worker dispatches the
+# same event -> duplicate webhooks). On the holder's death the lock frees and a
+# waiting worker takes over within one backoff interval.
+DEFAULT_LOCK_PATH = "/tmp/dotmac_voice_esl_consumer.lock"
 
 
 def handle_event(event: CallEvent) -> None:
@@ -55,12 +61,42 @@ class EslConsumer:
         bridge_factory: Callable[[], EslBridge] | None = None,
         handler: Callable[[CallEvent], None] | None = None,
         backoff_seconds: float = DEFAULT_RECONNECT_BACKOFF_SECONDS,
+        lock_path: str | None = DEFAULT_LOCK_PATH,
     ) -> None:
         self._factory = bridge_factory or _default_bridge
         self._handler = handler or handle_event
         self._backoff = backoff_seconds
+        self._lock_path = lock_path
+        self._lock_fd = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+
+    def _acquire_lock(self) -> bool:
+        """Try to become the single active consumer. True if we hold the lock
+        (or locking is disabled); False if another worker owns it."""
+        if not self._lock_path:
+            return True
+        try:
+            fd = open(self._lock_path, "w")
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self._lock_fd = fd
+            return True
+        except OSError:
+            try:
+                fd.close()
+            except Exception:
+                pass
+            return False
+
+    def _release_lock(self) -> None:
+        fd = self._lock_fd
+        self._lock_fd = None
+        if fd is not None:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+                fd.close()
+            except Exception:
+                pass
 
     def start(self) -> None:
         if self._thread is not None:
@@ -76,15 +112,21 @@ class EslConsumer:
             thread.join(timeout=timeout)
 
     def run_once(self) -> None:
-        """One connect-and-serve cycle: connect the bridge, install the handler,
-        and block (letting greenswitch stream events to the handler) until the
-        connection drops or stop() is called."""
-        bridge = self._factory()
-        bridge.on_event(self._handler)
-        bridge.connect()
-        logger.info("ESL consumer connected (%s:%s)", settings.esl_host, settings.esl_port)
-        while not self._stop.is_set() and bridge.is_alive():
-            self._stop.wait(timeout=1.0)
+        """One connect-and-serve cycle, guarded by the singleton lock: if another
+        worker owns the lock, return immediately (the caller retries later, so a
+        dead holder is taken over). Otherwise connect the bridge, install the
+        handler, and block until the connection drops or stop() is called."""
+        if not self._acquire_lock():
+            return
+        try:
+            bridge = self._factory()
+            bridge.on_event(self._handler)
+            bridge.connect()
+            logger.info("ESL consumer connected (%s:%s)", settings.esl_host, settings.esl_port)
+            while not self._stop.is_set() and bridge.is_alive():
+                self._stop.wait(timeout=1.0)
+        finally:
+            self._release_lock()
 
     def _run(self) -> None:
         while not self._stop.is_set():
