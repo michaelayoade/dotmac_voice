@@ -38,3 +38,30 @@ Implement via FusionPBX DB (v_dialplans context='public' + details) or the web U
 
 ## State: ROLLED BACK to known-good (ROUTE_VIA_FS OFF), two-way audio verified. FS routes/ACL/bridge
 retarget remain staged; flipping the flag is the only step that changes behavior.
+
+## FS-in-path progress (2026-06-24) — ROUTING PROVEN, media-plane open
+
+**Routing: WORKING end-to-end.** With ROUTE_VIA_FS on, a WS call now flows
+WS-A -> Kamailio -> FreeSWITCH (FusionPBX dialplan executes) -> Kamailio -> WS-B and the
+call CONNECTS. Path fixes that got us here:
+- Public-context dialplan `kamailio-internal-to-domain` (order 50): bridges internal-extension
+  calls from the trusted Kamailio peer directly to `sofia/external/${destination_number}@10.10.10.1:5060`
+  with a voicemail fallback (bypasses the FusionPBX `user_exists`/domain-context machinery that
+  404'd/480'd trunk-sourced calls). `continue_on_fail` + `answer` + `voicemail`.
+- Kamailio FS-leg branch: `$rd = "voicetest.dotmac"` before `lookup()` — FS bridges to `@10.10.10.1`
+  but users register `@voicetest.dotmac` (single-domain; multi-domain needs the domain in a header).
+
+**rtpengine (EDGE) interfaces** (now): `pub/10.120.120.50!160.119.126.62` + `int/10.10.10.1`.
+Backup: `/etc/rtpengine/rtpengine.conf.bak-fsinpath`. Direct WS<->WS path re-verified two-way
+after this change (`direction=pub direction=pub`).
+
+**OPEN — media plane.** With ROUTE_VIA_FS on the answered call connects but: callee webphone
+reports "WebRTC Error" (the offer rtpengine builds toward WS-B is not valid WebRTC), and 0 RTP
+packets flow on EITHER leg. Per-leg routes are staged (RTP_OFFER_TO_FS / REPLY_FROM_FS strip to
+plain RTP toward FS via `direction=pub direction=int`; RTP_OFFER_TO_WS / REPLY_FROM_WS upgrade to
+`UDP/TLS/RTP/SAVPF ICE=force DTLS=active` toward the WS client via `direction=int direction=pub`).
+**Next:** capture rtpengine's actual offer/answer SDP for both B2BUA dialogs (two Call-IDs) and
+debug the WebRTC offer toward WS-B + the 0-packet relay (systematic SDP-level, not flag guessing).
+
+**State: ROLLED BACK to known-good (ROUTE_VIA_FS OFF); direct WS<->WS two-way audio verified.**
+All FS-in-path routes are inert behind the flag.
