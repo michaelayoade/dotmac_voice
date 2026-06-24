@@ -1,0 +1,13 @@
+<extension name="kamailio-internal-to-domain" continue="true">
+  <condition field="${network_addr}" expression="^10\.10\.10\.1$"/>
+  <condition field="destination_number" expression="^(1\d{3})$">
+    <action application="set" data="hangup_after_bridge=true"/>
+    <action application="set" data="continue_on_fail=true"/>
+    <action application="export" data="rtp_timeout_sec=30"/>
+    <action application="export" data="rtp_hold_timeout_sec=1800"/>
+    <action application="log" data="INFO voice-edge: bridge ${destination_number} to kamailio"/>
+    <action application="bridge" data="{sip_h_X-Voice-Domain=${sip_req_host}}sofia/external/${destination_number}@10.10.10.1:5060"/>
+    <action application="answer"/>
+    <action application="voicemail" data="default ${sip_req_host} ${destination_number}"/>
+  </condition>
+</extension>

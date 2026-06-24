@@ -121,3 +121,31 @@ self-care portal won't list the message yet. The recording itself is stored + pl
 
 ## ACCEPTANCE: 1✅ 2✅ 3✅ 5✅(core; portal-row follow-up) 6✅ 7✅ | 4 = clean-BYE✅, abrupt-close follow-up
 ## State: ROUTE_VIA_FS OFF (safe/known-good). FS-in-path proven (two-way audio + voicemail), one flag-flip away.
+
+## Follow-ups addressed (2026-06-24, part 2)
+
+**(a) Abrupt-WS-disconnect teardown — FIXED.** Profile `rtp-timeout-sec` wasn't reaching the
+generated sofia config, so instead set it per-call as a channel variable in the public dialplan:
+`<action application="export" data="rtp_timeout_sec=30"/>` (+ rtp_hold_timeout_sec=1800). `export`
+propagates it to the bridged b-leg, so BOTH FS legs reap ~30s after media stops. Verified: abrupt
+browser close (no BYE) -> channels 2 -> 0 by t+40s. (Clean BYE still tears down instantly.)
+
+**(c) Multi-domain registrar lookup — FIXED (mechanism).** FS bridge stamps the original domain:
+`bridge {sip_h_X-Voice-Domain=${sip_req_host}}sofia/external/${destination_number}@10.10.10.1:5060`.
+Kamailio FS-leg: `if (is_present_hf("X-Voice-Domain")) $rd = $hdr(X-Voice-Domain); else $rd =
+"voicetest.dotmac";`. Removes the single-domain hardcode (fallback retained). Answered call verified
+two-way via this path. (Full multi-domain needs a 2nd test domain to exercise.)
+
+**(b) FusionPBX portal voicemail row — STILL DEFERRED.** Tried swapping the native `voicemail` app
+for `lua app.lua voicemail` to get the `v_voicemail_messages` insert, but the FusionPBX voicemail Lua
+needs the full call context FusionPBX's own failure_handler sets (it played no greeting + no row as a
+drop-in). Reverted to the native `voicemail` app (works: greeting + record + playable wav + MWI).
+Portal listing row remains a proper FusionPBX-voicemail-integration task (wire the failure_handler /
+api-on hook), not a one-line change.
+
+### Gotchas learned
+- FusionPBX dialplan `${...}` vars get MANGLED through ssh->psql->heredoc quoting; load XML verbatim
+  via `pg_read_file('/tmp/dp.xml')` instead. Repo copy: `deploy/core/freeswitch/kamailio-internal-to-domain.xml`.
+- `${network_addr}`/`${sip_network_ip}` are EMPTY at dialplan parse-time (only set at action-execute);
+  a `sofia profile rescan` can wedge parse-time vars — a full `systemctl restart freeswitch` restored
+  `${network_addr}` matching. (Discriminator stays `${network_addr}`; providers ACL is the hard IP gate.)
