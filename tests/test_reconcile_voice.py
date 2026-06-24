@@ -245,12 +245,12 @@ def test_reconcile_applies_and_drifts_features(db_session):
             return {}
 
         def list_managed_dialplans(self, d):
-            # includes an orphan (9999) not in the desired models
+            # domain-scoped names; includes an orphan (9999) not in the desired models
             return {
-                "kamailio-conference-3001",
-                "kamailio-ringgroup-2000",
-                "kamailio-ivr-4000",
-                "kamailio-ivr-9999",
+                "kamailio-conference-featrec-c1.local-3001",
+                "kamailio-ringgroup-featrec-c1.local-2000",
+                "kamailio-ivr-featrec-c1.local-4000",
+                "kamailio-ivr-featrec-c1.local-9999",
             }
 
         def list_queues(self, d):
@@ -270,7 +270,7 @@ def test_reconcile_applies_and_drifts_features(db_session):
     assert {"conf", "rg", "ivr"} <= {c[0] for c in fake.created}
     assert "5000" in fake.queue_calls
     # drift: undefined feature dialplan + queue removed; defined ones kept
-    assert fake.deleted_dialplans == ["kamailio-ivr-9999"]
+    assert fake.deleted_dialplans == ["kamailio-ivr-featrec-c1.local-9999"]
     assert fake.deleted_queues == ["5999"]
 
 

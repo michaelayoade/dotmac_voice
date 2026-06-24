@@ -16,6 +16,7 @@ from app.models.voice import (
     VoiceDomain,
 )
 from app.services.exceptions import NotFoundError, ServiceUnavailableError
+from app.services.fusionpbx.client import feature_dialplan_name
 
 
 @dataclass(frozen=True)
@@ -113,7 +114,7 @@ def reconcile_voice(db: Session, client, customer_id: str) -> SyncStatus:
                 select(ConferenceRoom).where(ConferenceRoom.voice_domain_id == domain.id)
             ):
                 client.create_conference(dom_name, c.number)
-                desired_dialplans.add(f"kamailio-conference-{c.number}")
+                desired_dialplans.add(feature_dialplan_name("conference", dom_name, c.number))
             for r in db.scalars(
                 select(RingGroup).where(RingGroup.voice_domain_id == domain.id)
             ):
@@ -121,12 +122,12 @@ def reconcile_voice(db: Session, client, customer_id: str) -> SyncStatus:
                     dom_name, r.number, list(r.members),
                     strategy=r.strategy, timeout=r.timeout,
                 )
-                desired_dialplans.add(f"kamailio-ringgroup-{r.number}")
+                desired_dialplans.add(feature_dialplan_name("ringgroup", dom_name, r.number))
             for i in db.scalars(
                 select(IvrMenu).where(IvrMenu.voice_domain_id == domain.id)
             ):
                 client.create_ivr(dom_name, i.number, dict(i.options), greeting=i.greeting)
-                desired_dialplans.add(f"kamailio-ivr-{i.number}")
+                desired_dialplans.add(feature_dialplan_name("ivr", dom_name, i.number))
             for name in client.list_managed_dialplans(dom_name) - desired_dialplans:
                 client.delete_dialplan(name)
 

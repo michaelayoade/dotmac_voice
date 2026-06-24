@@ -12,6 +12,7 @@ an in-memory SQLite engine. FusionPBX stores booleans as the TEXT strings
 """
 
 import logging
+import re
 import secrets
 import uuid
 from collections.abc import Callable
@@ -174,19 +175,23 @@ DIAL_STRING_UNLOCK = (
     "sofia/external/${dialed_user}@10.10.10.1:5060"
 )
 
-# Public-context feature dialplan template (NUMBER token replaced per call). Mirrors
-# the verbatim XML in deploy/core/freeswitch/kamailio-conference.xml. Gated by the
-# Kamailio source IP; FreeSWITCH expands ${...} at runtime.
-_CONFERENCE_TEMPLATE = (
-    '<extension name="kamailio-conference-NUMBER" continue="false">\n'
-    '  <condition field="${network_addr}" expression="^10\\.10\\.10\\.1$"/>\n'
-    '  <condition field="destination_number" expression="^(NUMBER)$">\n'
-    '    <action application="answer"/>\n'
-    '    <action application="sleep" data="500"/>\n'
-    '    <action application="conference" data="NUMBER@default"/>\n'
-    "  </condition>\n"
-    "</extension>"
-)
+def feature_dialplan_name(kind: str, domain_name: str, number: str) -> str:
+    """Per-(domain, number) feature dialplan name for multi-tenant isolation.
+
+    Two customers can both use feature number 3001 without colliding because each
+    gets its own dialplan row + a ${sip_req_host} domain condition (see _domain_match).
+    """
+    return f"kamailio-{kind}-{domain_name}-{number}"
+
+
+def _domain_match(domain_name: str) -> str:
+    """Regex anchoring a feature dialplan to one domain's calls (${sip_req_host})."""
+    return "^" + re.escape(domain_name) + "$"
+
+
+def _conf_room(domain_name: str, number: str) -> str:
+    """Domain-scoped conference room so rooms don't merge across customers."""
+    return f"{domain_name.replace('.', '_')}-{number}"
 
 # Errors that mean the FusionPBX database is unreachable / a transport fault.
 _UNAVAILABLE = (OperationalError, InterfaceError)
@@ -549,9 +554,21 @@ class FusionpbxClient:
         return True
 
     def create_conference(self, domain_name: str, number: str) -> dict:
-        """Idempotently provision an FS-hosted conference room <number> (public ctx)."""
-        name = f"kamailio-conference-{number}"
-        xml = _CONFERENCE_TEMPLATE.replace("NUMBER", number)
+        """Idempotently provision an FS-hosted conference room <number>, isolated to
+        this domain (room name + ${sip_req_host} condition) so customers don't merge."""
+        name = feature_dialplan_name("conference", domain_name, number)
+        room = _conf_room(domain_name, number)
+        xml = (
+            f'<extension name="{name}" continue="false">\n'
+            '  <condition field="${network_addr}" expression="^10\\.10\\.10\\.1$"/>\n'
+            f'  <condition field="${{sip_req_host}}" expression="{_domain_match(domain_name)}"/>\n'
+            f'  <condition field="destination_number" expression="^({number})$">\n'
+            '    <action application="answer"/>\n'
+            '    <action application="sleep" data="500"/>\n'
+            f'    <action application="conference" data="{room}@default"/>\n'
+            "  </condition>\n"
+            "</extension>"
+        )
         changed = False
         try:
             with self._engine.begin() as conn:
@@ -583,11 +600,12 @@ class FusionpbxClient:
         unlock routes to Kamailio -> the WS clients. ``simultaneous`` = comma-join.
         """
         sep = "," if strategy == "simultaneous" else "|"
-        bridge_data = sep.join(f"user/{m}@${{domain_name}}" for m in members)
-        name = f"kamailio-ringgroup-{number}"
+        bridge_data = sep.join(f"user/{m}@{domain_name}" for m in members)
+        name = feature_dialplan_name("ringgroup", domain_name, number)
         xml = (
             f'<extension name="{name}" continue="false">\n'
             '  <condition field="${network_addr}" expression="^10\\.10\\.10\\.1$"/>\n'
+            f'  <condition field="${{sip_req_host}}" expression="{_domain_match(domain_name)}"/>\n'
             f'  <condition field="destination_number" expression="^({number})$">\n'
             '    <action application="set" data="hangup_after_bridge=true"/>\n'
             '    <action application="set" data="continue_on_fail=true"/>\n'
@@ -804,9 +822,11 @@ class FusionpbxClient:
                         f"callcenter_config agent set status {agent_uuid} 'Available (On Demand)'",
                         f"callcenter_config tier add {number}@{domain_name} {agent_uuid} 1 1",
                     ]
+                queue_dp_name = feature_dialplan_name("queue", domain_name, number)
                 dp_xml = (
-                    f'<extension name="kamailio-queue-{number}" continue="false">\n'
+                    f'<extension name="{queue_dp_name}" continue="false">\n'
                     '  <condition field="${network_addr}" expression="^10\\.10\\.10\\.1$"/>\n'
+                    f'  <condition field="${{sip_req_host}}" expression="{_domain_match(domain_name)}"/>\n'
                     f'  <condition field="destination_number" expression="^({number})$">\n'
                     '    <action application="answer"/>\n'
                     '    <action application="sleep" data="500"/>\n'
@@ -816,7 +836,7 @@ class FusionpbxClient:
                     "</extension>"
                 )
                 if self._ensure_dialplan(
-                    conn, name=f"kamailio-queue-{number}", number=number, order=53, xml=dp_xml,
+                    conn, name=queue_dp_name, number=number, order=53, xml=dp_xml,
                     tag=f"dotmac-voice:queue:{domain_name}",
                 ):
                     changed = True
@@ -829,7 +849,7 @@ class FusionpbxClient:
         for cmd in cmds:
             self._commander(cmd)
         return {
-            "name": f"kamailio-queue-{number}",
+            "name": feature_dialplan_name("queue", domain_name, number),
             "created": changed,
             "media_caveat": (
                 "caller<->agent media one-way (mod_callcenter bridge re-anchor); "
@@ -905,7 +925,10 @@ class FusionpbxClient:
                     deleted = True
                 dp = conn.execute(
                     delete(v_dialplans)
-                    .where(v_dialplans.c.dialplan_name == f"kamailio-queue-{number}")
+                    .where(
+                        v_dialplans.c.dialplan_name
+                        == feature_dialplan_name("queue", domain_name, number)
+                    )
                     .where(v_dialplans.c.dialplan_context == "public")
                 )
                 deleted = deleted or dp.rowcount > 0
@@ -965,10 +988,11 @@ class FusionpbxClient:
         expr = items[-1][1]
         for digit, tgt in reversed(items[:-1]):
             expr = "${cond(${ivr_choice} == " + digit + " ? " + tgt + " : " + expr + ")}"
-        name = f"kamailio-ivr-{number}"
+        name = feature_dialplan_name("ivr", domain_name, number)
         xml = (
             f'<extension name="{name}" continue="false">\n'
             '  <condition field="${network_addr}" expression="^10\\.10\\.10\\.1$"/>\n'
+            f'  <condition field="${{sip_req_host}}" expression="{_domain_match(domain_name)}"/>\n'
             f'  <condition field="destination_number" expression="^({number})$">\n'
             '    <action application="answer"/>\n'
             '    <action application="sleep" data="500"/>\n'

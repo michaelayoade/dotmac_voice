@@ -377,7 +377,7 @@ class TestCreateConference:
                     "SELECT dialplan_context, dialplan_xml FROM v_dialplans "
                     "WHERE dialplan_name = :n"
                 ),
-                {"n": "kamailio-conference-3001"},
+                {"n": "kamailio-conference-a.local-3001"},
             ).first()
         assert row.dialplan_context == "public"
         assert 'application="conference"' in row.dialplan_xml
@@ -399,10 +399,10 @@ class TestCreateRingGroup:
         with fpbx_engine.connect() as conn:
             xml = conn.execute(
                 text("SELECT dialplan_xml FROM v_dialplans WHERE dialplan_name = :n"),
-                {"n": "kamailio-ringgroup-2000"},
+                {"n": "kamailio-ringgroup-a.local-2000"},
             ).scalar_one()
-        # simultaneous = comma-joined user/ bridges routed via the dial-string unlock
-        assert 'user/1002@${domain_name},user/1003@${domain_name}' in xml
+        # simultaneous = comma-joined user/ bridges (domain-scoped for isolation)
+        assert "user/1002@a.local,user/1003@a.local" in xml
         assert 'application="bridge"' in xml
 
     def test_is_idempotent(self, client, reloader):
@@ -420,7 +420,7 @@ class TestCreateIvr:
         with fpbx_engine.connect() as conn:
             xml = conn.execute(
                 text("SELECT dialplan_xml FROM v_dialplans WHERE dialplan_name = :n"),
-                {"n": "kamailio-ivr-4000"},
+                {"n": "kamailio-ivr-a.local-4000"},
             ).scalar_one()
         assert 'application="play_and_get_digits"' in xml
         assert "^[12]$" in xml
@@ -497,7 +497,7 @@ class TestEnsureQueue:
             dp = conn.execute(
                 text(
                     "SELECT dialplan_xml FROM v_dialplans "
-                    "WHERE dialplan_name='kamailio-queue-5000'"
+                    "WHERE dialplan_name='kamailio-queue-a.local-5000'"
                 )
             ).scalar_one()
         # GOTCHA: callcenter.conf names the queue by queue_name -> set it to the number.
@@ -524,14 +524,14 @@ class TestEnsureQueue:
 class TestDeletePrimitives:
     def test_delete_dialplan(self, client, fpbx_engine):
         client.create_conference("a.local", "3001")
-        assert client.delete_dialplan("kamailio-conference-3001") is True
+        assert client.delete_dialplan("kamailio-conference-a.local-3001") is True
         with fpbx_engine.connect() as conn:
             n = conn.execute(
                 text("SELECT count(*) FROM v_dialplans WHERE dialplan_name = :n"),
-                {"n": "kamailio-conference-3001"},
+                {"n": "kamailio-conference-a.local-3001"},
             ).scalar_one()
         assert n == 0
-        assert client.delete_dialplan("kamailio-conference-3001") is False  # idempotent
+        assert client.delete_dialplan("kamailio-conference-a.local-3001") is False  # idempotent
 
     def test_delete_voicemail(self, client):
         client.ensure_voicemail("a.local", "1001")
@@ -550,9 +550,46 @@ class TestDeletePrimitives:
             ).scalar_one()
             tiers = conn.execute(text("SELECT count(*) FROM v_call_center_tiers")).scalar_one()
             dp = conn.execute(
-                text("SELECT count(*) FROM v_dialplans WHERE dialplan_name='kamailio-queue-5000'")
+                text("SELECT count(*) FROM v_dialplans WHERE dialplan_name='kamailio-queue-a.local-5000'")
             ).scalar_one()
         assert q == 0 and tiers == 0 and dp == 0
         cmds = " ".join(call.args[0] for call in commander.call_args_list)
         assert "queue unload 5000@a.local" in cmds
         assert c.delete_queue("a.local", "5000") is False  # idempotent
+
+
+class TestMultiTenantIsolation:
+    def test_same_number_distinct_per_domain(self, client, fpbx_engine):
+        """Two customers can both use conference 3001 without colliding: distinct
+        dialplan rows, each anchored to its own domain, distinct rooms."""
+        client.create_conference("a.local", "3001")
+        client.create_conference("b.local", "3001")
+        with fpbx_engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    "SELECT dialplan_name, dialplan_xml FROM v_dialplans "
+                    "WHERE dialplan_name LIKE 'kamailio-conference-%-3001'"
+                )
+            ).fetchall()
+        xml_by_name = {r.dialplan_name: r.dialplan_xml for r in rows}
+        assert set(xml_by_name) == {
+            "kamailio-conference-a.local-3001",
+            "kamailio-conference-b.local-3001",
+        }
+        # each fires only for its own domain's calls (${sip_req_host})
+        assert 'field="${sip_req_host}" expression="^a\\.local$"' in xml_by_name[
+            "kamailio-conference-a.local-3001"
+        ]
+        assert 'field="${sip_req_host}" expression="^b\\.local$"' in xml_by_name[
+            "kamailio-conference-b.local-3001"
+        ]
+        # distinct conference rooms -> no cross-customer merge
+        assert "a_local-3001@default" in xml_by_name["kamailio-conference-a.local-3001"]
+        assert "b_local-3001@default" in xml_by_name["kamailio-conference-b.local-3001"]
+
+    def test_drift_listing_is_domain_scoped(self, client):
+        """list_managed_dialplans returns only the queried domain's features."""
+        client.create_conference("a.local", "3001")
+        client.create_conference("b.local", "3001")
+        assert client.list_managed_dialplans("a.local") == {"kamailio-conference-a.local-3001"}
+        assert client.list_managed_dialplans("b.local") == {"kamailio-conference-b.local-3001"}

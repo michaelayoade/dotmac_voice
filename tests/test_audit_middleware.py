@@ -1,9 +1,9 @@
 """Tests for audit middleware - read-triggers, skip-paths, and exception logging."""
 
-import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sqlalchemy import select
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -15,7 +15,9 @@ from app.main import (
     _to_str,
     audit_middleware,
 )
+from app.models.audit import AuditActorType, AuditEvent
 from app.models.domain_settings import DomainSetting, SettingDomain
+from app.services.audit import audit_events
 
 
 class TestAuditPathSkipping:
@@ -220,6 +222,33 @@ class TestAuditSettingsLoading:
         assert isinstance(settings["skip_paths"], list)
 
 
+class TestAuditRequestLogging:
+    """Tests for persisted audit request metadata."""
+
+    def test_log_request_persists_path_and_query_metadata(self, db_session):
+        request = MagicMock(spec=Request)
+        request.method = "POST"
+        request.url.path = "/api/v1/people"
+        request.headers = {
+            "x-actor-type": AuditActorType.user.value,
+            "x-actor-id": "person-123",
+            "x-request-id": "request-123",
+        }
+        request.query_params = {"audit": "true"}
+        request.client.host = "127.0.0.1"
+
+        audit_events.log_request(db_session, request, Response(status_code=201))
+        db_session.commit()
+
+        event = db_session.scalars(
+            select(AuditEvent).where(AuditEvent.request_id == "request-123")
+        ).one()
+        assert event.metadata_ == {
+            "path": "/api/v1/people",
+            "query": {"audit": "true"},
+        }
+
+
 class TestAuditMiddlewareReadTriggers:
     """Tests for audit middleware read trigger behavior."""
 
@@ -244,14 +273,16 @@ class TestAuditMiddlewareReadTriggers:
             "read_trigger_query": "audit",
         }
 
-        with patch("app.main._load_audit_settings", return_value=audit_settings):
-            with patch("app.main.SessionLocal") as mock_session:
-                mock_db = MagicMock()
-                mock_session.return_value = mock_db
-                with patch("app.main.audit_service") as mock_audit:
-                    result = await audit_middleware(request, call_next)
-                    # GET without trigger should not log
-                    mock_audit.audit_events.log_request.assert_not_called()
+        with (
+            patch("app.main._load_audit_settings", return_value=audit_settings),
+            patch("app.main.SessionLocal") as mock_session,
+            patch("app.main.audit_service") as mock_audit,
+        ):
+            mock_db = MagicMock()
+            mock_session.return_value = mock_db
+            await audit_middleware(request, call_next)
+            # GET without trigger should not log
+            mock_audit.audit_events.log_request.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_get_request_logged_with_header_trigger(self):
@@ -276,14 +307,16 @@ class TestAuditMiddlewareReadTriggers:
             "read_trigger_query": "audit",
         }
 
-        with patch("app.main._load_audit_settings", return_value=audit_settings):
-            with patch("app.main.SessionLocal") as mock_session:
-                mock_db = MagicMock()
-                mock_session.return_value = mock_db
-                with patch("app.main.audit_service") as mock_audit:
-                    result = await audit_middleware(request, call_next)
-                    # GET with header trigger should log
-                    mock_audit.audit_events.log_request.assert_called_once()
+        with (
+            patch("app.main._load_audit_settings", return_value=audit_settings),
+            patch("app.main.SessionLocal") as mock_session,
+            patch("app.main.audit_service") as mock_audit,
+        ):
+            mock_db = MagicMock()
+            mock_session.return_value = mock_db
+            await audit_middleware(request, call_next)
+            # GET with header trigger should log
+            mock_audit.audit_events.log_request.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_request_logged_with_query_trigger(self):
@@ -306,13 +339,15 @@ class TestAuditMiddlewareReadTriggers:
             "read_trigger_query": "audit",
         }
 
-        with patch("app.main._load_audit_settings", return_value=audit_settings):
-            with patch("app.main.SessionLocal") as mock_session:
-                mock_db = MagicMock()
-                mock_session.return_value = mock_db
-                with patch("app.main.audit_service") as mock_audit:
-                    result = await audit_middleware(request, call_next)
-                    mock_audit.audit_events.log_request.assert_called_once()
+        with (
+            patch("app.main._load_audit_settings", return_value=audit_settings),
+            patch("app.main.SessionLocal") as mock_session,
+            patch("app.main.audit_service") as mock_audit,
+        ):
+            mock_db = MagicMock()
+            mock_session.return_value = mock_db
+            await audit_middleware(request, call_next)
+            mock_audit.audit_events.log_request.assert_called_once()
 
 
 class TestAuditMiddlewareExceptionLogging:
@@ -328,7 +363,7 @@ class TestAuditMiddlewareExceptionLogging:
         request.headers.get.return_value = None
         request.query_params = {}
 
-        call_next = AsyncMock(side_effect=Exception("Internal error"))
+        call_next = AsyncMock(side_effect=RuntimeError("Internal error"))
 
         audit_settings = {
             "enabled": True,
@@ -338,17 +373,19 @@ class TestAuditMiddlewareExceptionLogging:
             "read_trigger_query": "audit",
         }
 
-        with patch("app.main._load_audit_settings", return_value=audit_settings):
-            with patch("app.main.SessionLocal") as mock_session:
-                mock_db = MagicMock()
-                mock_session.return_value = mock_db
-                with patch("app.main.audit_service") as mock_audit:
-                    with pytest.raises(Exception):
-                        await audit_middleware(request, call_next)
-                    # Exception should be logged with 500 status
-                    mock_audit.audit_events.log_request.assert_called_once()
-                    call_args = mock_audit.audit_events.log_request.call_args
-                    assert call_args[0][2].status_code == 500
+        with (
+            patch("app.main._load_audit_settings", return_value=audit_settings),
+            patch("app.main.SessionLocal") as mock_session,
+            patch("app.main.audit_service") as mock_audit,
+        ):
+            mock_db = MagicMock()
+            mock_session.return_value = mock_db
+            with pytest.raises(RuntimeError):
+                await audit_middleware(request, call_next)
+            # Exception should be logged with 500 status
+            mock_audit.audit_events.log_request.assert_called_once()
+            call_args = mock_audit.audit_events.log_request.call_args
+            assert call_args[0][2].status_code == 500
 
     @pytest.mark.asyncio
     async def test_exception_not_logged_for_skipped_path(self):
@@ -360,7 +397,7 @@ class TestAuditMiddlewareExceptionLogging:
         request.headers.get.return_value = None
         request.query_params = {}
 
-        call_next = AsyncMock(side_effect=Exception("Static file error"))
+        call_next = AsyncMock(side_effect=RuntimeError("Static file error"))
 
         audit_settings = {
             "enabled": True,
@@ -370,15 +407,17 @@ class TestAuditMiddlewareExceptionLogging:
             "read_trigger_query": "audit",
         }
 
-        with patch("app.main._load_audit_settings", return_value=audit_settings):
-            with patch("app.main.SessionLocal") as mock_session:
-                mock_db = MagicMock()
-                mock_session.return_value = mock_db
-                with patch("app.main.audit_service") as mock_audit:
-                    with pytest.raises(Exception):
-                        await audit_middleware(request, call_next)
-                    # Skipped path should not log
-                    mock_audit.audit_events.log_request.assert_not_called()
+        with (
+            patch("app.main._load_audit_settings", return_value=audit_settings),
+            patch("app.main.SessionLocal") as mock_session,
+            patch("app.main.audit_service") as mock_audit,
+        ):
+            mock_db = MagicMock()
+            mock_session.return_value = mock_db
+            with pytest.raises(RuntimeError):
+                await audit_middleware(request, call_next)
+            # Skipped path should not log
+            mock_audit.audit_events.log_request.assert_not_called()
 
 
 class TestAuditMiddlewareDisabled:
@@ -402,10 +441,12 @@ class TestAuditMiddlewareDisabled:
             "read_trigger_query": "audit",
         }
 
-        with patch("app.main._load_audit_settings", return_value=audit_settings):
-            with patch("app.main.SessionLocal") as mock_session:
-                mock_db = MagicMock()
-                mock_session.return_value = mock_db
-                with patch("app.main.audit_service") as mock_audit:
-                    result = await audit_middleware(request, call_next)
-                    mock_audit.audit_events.log_request.assert_not_called()
+        with (
+            patch("app.main._load_audit_settings", return_value=audit_settings),
+            patch("app.main.SessionLocal") as mock_session,
+            patch("app.main.audit_service") as mock_audit,
+        ):
+            mock_db = MagicMock()
+            mock_session.return_value = mock_db
+            await audit_middleware(request, call_next)
+            mock_audit.audit_events.log_request.assert_not_called()
