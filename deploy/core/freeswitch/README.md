@@ -168,4 +168,4 @@ Verified: greeting plays to WS-A, WS-A recorded, file stored at the correct path
 because the synthetic fake-mic tone trips silence detection; a real caller records to hangup.)
 
 ## ALL THREE FOLLOW-UPS DONE: (a) teardown ✅  (b) portal voicemail row ✅  (c) multi-domain ✅
-## State: ROUTE_VIA_FS OFF (safe); direct path 141/141. FS-in-path fully featured + one flag-flip away.
+## DEPLOYED 2026-06-24: ROUTE_VIA_FS ON (LIVE). Verified: answered call two-way (133/66) + voicemail w/ portal row. Rollback = comment the define + restart kamailio (direct path known-good).
