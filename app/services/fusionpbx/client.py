@@ -77,6 +77,17 @@ v_extensions = Table(
     Column("insert_date", DateTime(timezone=True)),
 )
 
+v_voicemails = Table(
+    "v_voicemails",
+    _metadata,
+    Column("voicemail_uuid", Uuid(as_uuid=False), primary_key=True),
+    Column("domain_uuid", Uuid(as_uuid=False)),
+    Column("voicemail_id", String),
+    Column("voicemail_password", String),
+    Column("voicemail_enabled", Boolean),
+    Column("insert_date", DateTime(timezone=True)),
+)
+
 # The FusionPBX directory dial-string that routes user/<ext> bridges to Kamailio.
 # WS clients register on Kamailio (10.10.10.1), not FreeSWITCH, so the default
 # sofia_contact() dial-string resolves to nothing. FreeSWITCH expands ${...} at
@@ -343,6 +354,51 @@ class FusionpbxClient:
             "extension_uuid": extension_uuid,
             "password": secret,
         }
+
+    def ensure_voicemail(
+        self,
+        domain_name: str,
+        number: str,
+        *,
+        enabled: bool = True,
+        password: str = "",
+    ) -> dict:
+        """Idempotently ensure a voicemail box (v_voicemails) for an extension.
+
+        The ``switch/voicemail/dir`` default-setting must be correct (see
+        ``ensure_switch_settings``) for recordings to land on disk; this only
+        creates the box. Mirrors deploy/core/freeswitch/dialstring-unlock-and-1003.sql.
+        """
+        pwd = password or number
+        wrote = False
+        try:
+            with self._engine.begin() as conn:
+                domain_uuid, _ = self._ensure_domain(conn, domain_name)
+                existing = conn.execute(
+                    select(v_voicemails.c.voicemail_uuid)
+                    .where(v_voicemails.c.domain_uuid == domain_uuid)
+                    .where(v_voicemails.c.voicemail_id == number)
+                ).first()
+                if existing is not None:
+                    return {"voicemail_id": number, "created": False}
+                conn.execute(
+                    insert(v_voicemails).values(
+                        voicemail_uuid=str(uuid.uuid4()),
+                        domain_uuid=domain_uuid,
+                        voicemail_id=number,
+                        voicemail_password=pwd,
+                        voicemail_enabled=enabled,
+                        insert_date=datetime.now(UTC),
+                    )
+                )
+                wrote = True
+        except _UNAVAILABLE as exc:
+            raise ServiceUnavailableError(f"FusionPBX DB unreachable: {exc}") from exc
+        except IntegrityError as exc:
+            raise BadRequestError(f"FusionPBX voicemail insert failed: {exc}") from exc
+        if wrote:
+            self._reload()
+        return {"voicemail_id": number, "created": True}
 
     def delete_extension(self, domain_name: str, number: str) -> bool:
         """Delete an extension from a FusionPBX domain.

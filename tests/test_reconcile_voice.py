@@ -14,6 +14,7 @@ class _FakeClient:
     """Mock FusionPBX client for testing."""
     def __init__(self):
         self.created = []
+        self.voicemails = []
 
     def list_extensions(self, domain):
         """Mock list_extensions: currently only knows about 1001."""
@@ -22,6 +23,11 @@ class _FakeClient:
     def create_extension(self, domain, number, password, display_name=""):
         """Mock create_extension: record that this number was created."""
         self.created.append(number)
+
+    def ensure_voicemail(self, domain, number, *, enabled=True, password=""):
+        """Mock ensure_voicemail: record the voicemail box ensured."""
+        self.voicemails.append(number)
+        return {"voicemail_id": number, "created": True}
 
 
 def test_reconcile_creates_missing_extension(db_session):
@@ -67,6 +73,9 @@ class _FakeClientWithExtras:
         self.deleted.append(number)
         return True
 
+    def ensure_voicemail(self, domain, number, *, enabled=True, password=""):
+        return {"voicemail_id": number, "created": True}
+
 
 def test_reconcile_deletes_extra_extensions(db_session):
     """Test that reconcile_voice removes live FusionPBX extensions absent from desired state."""
@@ -90,3 +99,22 @@ def test_reconcile_deletes_extra_extensions(db_session):
 
     # Verify no creations (1001 already exists)
     assert len(client.created) == 0
+
+
+def test_reconcile_ensures_voicemail_for_enabled_extensions(db_session):
+    """reconcile_voice provisions a voicemail box for each voicemail-enabled extension."""
+    dom = VoiceDomain(customer_id="vm-c1", fusionpbx_domain="vm-c1.local")
+    db_session.add(dom)
+    db_session.flush()
+    db_session.add_all([
+        Extension(voice_domain_id=dom.id, number="1001", voicemail_enabled=True),
+        Extension(voice_domain_id=dom.id, number="1002", voicemail_enabled=False),
+    ])
+    db_session.flush()
+
+    client = _FakeClient()
+    reconcile_voice(db_session, client, "vm-c1")
+
+    # 1001 has voicemail enabled -> box ensured; 1002 disabled -> not.
+    assert "1001" in client.voicemails
+    assert "1002" not in client.voicemails

@@ -60,13 +60,11 @@ def reconcile_voice(db: Session, client, customer_id: str) -> SyncStatus:
     if not domain:
         raise NotFoundError(f"No voice domain for customer {customer_id}")
 
-    # Collect desired extensions from database
-    desired = {
-        e.number
-        for e in db.scalars(
-            select(Extension).where(Extension.voice_domain_id == domain.id)
-        )
-    }
+    # Collect desired extensions from database (keep rows for feature reconcile)
+    desired_exts = list(
+        db.scalars(select(Extension).where(Extension.voice_domain_id == domain.id))
+    )
+    desired = {e.number for e in desired_exts}
 
     try:
         # Fetch actual extensions from FusionPBX
@@ -84,6 +82,11 @@ def reconcile_voice(db: Session, client, customer_id: str) -> SyncStatus:
         # Delete stale extensions (sorted for determinism)
         for number in sorted(delta.to_delete):
             client.delete_extension(domain.fusionpbx_domain, number)
+
+        # Ensure a voicemail box for each voicemail-enabled extension.
+        for ext in sorted(desired_exts, key=lambda e: e.number):
+            if ext.voicemail_enabled:
+                client.ensure_voicemail(domain.fusionpbx_domain, ext.number)
 
         domain.sync_status = SyncStatus.synced
 

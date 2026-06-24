@@ -65,6 +65,20 @@ def fpbx_engine() -> Engine:
                 """
             )
         )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE v_voicemails (
+                    voicemail_uuid TEXT PRIMARY KEY,
+                    domain_uuid TEXT,
+                    voicemail_id TEXT,
+                    voicemail_password TEXT,
+                    voicemail_enabled BOOLEAN,
+                    insert_date TEXT
+                )
+                """
+            )
+        )
     return engine
 
 
@@ -277,3 +291,26 @@ class TestDialStringUnlock:
             ).scalar_one()
         assert ds == DIAL_STRING_UNLOCK
         assert "sofia/external/${dialed_user}@10.10.10.1:5060" in ds
+
+
+class TestEnsureVoicemail:
+    def test_creates_box(self, client, fpbx_engine):
+        result = client.ensure_voicemail("a.local", "1001")
+        assert result == {"voicemail_id": "1001", "created": True}
+        with fpbx_engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT voicemail_id, voicemail_enabled FROM v_voicemails "
+                    "WHERE voicemail_id = :i"
+                ),
+                {"i": "1001"},
+            ).first()
+        assert row.voicemail_id == "1001"
+        assert row.voicemail_enabled == 1
+
+    def test_is_idempotent(self, client, reloader):
+        client.ensure_voicemail("a.local", "1001")
+        reloader.reset_mock()
+        second = client.ensure_voicemail("a.local", "1001")
+        assert second["created"] is False
+        reloader.assert_not_called()
