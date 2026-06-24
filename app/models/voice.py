@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String
+from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -99,3 +99,50 @@ class Cdr(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
+
+
+class _FeatureBase(Base):
+    """Shared columns for per-domain feature desired-state."""
+
+    __abstract__ = True
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    voice_domain_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("voice_domains.id"), nullable=False, index=True
+    )
+    number: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now
+    )
+
+
+class ConferenceRoom(_FeatureBase):
+    __tablename__ = "voice_conference_rooms"
+
+
+class RingGroup(_FeatureBase):
+    __tablename__ = "voice_ring_groups"
+    strategy: Mapped[str] = mapped_column(String(20), nullable=False, default="simultaneous")
+    members: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    timeout: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+
+
+class IvrMenu(_FeatureBase):
+    __tablename__ = "voice_ivr_menus"
+    greeting: Mapped[str] = mapped_column(
+        String(255), nullable=False, default="ivr/ivr-enter_ext_pound.wav"
+    )
+    options: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+
+
+class Queue(_FeatureBase):
+    __tablename__ = "voice_queues"
+    name: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    strategy: Mapped[str] = mapped_column(String(40), nullable=False, default="ring-all")
+    agents: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
