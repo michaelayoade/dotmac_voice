@@ -519,3 +519,40 @@ class TestEnsureQueue:
         second = c.ensure_queue("a.local", "5000", agents=["1002"])
         assert second["created"] is False
         reloader.assert_not_called()
+
+
+class TestDeletePrimitives:
+    def test_delete_dialplan(self, client, fpbx_engine):
+        client.create_conference("a.local", "3001")
+        assert client.delete_dialplan("kamailio-conference-3001") is True
+        with fpbx_engine.connect() as conn:
+            n = conn.execute(
+                text("SELECT count(*) FROM v_dialplans WHERE dialplan_name = :n"),
+                {"n": "kamailio-conference-3001"},
+            ).scalar_one()
+        assert n == 0
+        assert client.delete_dialplan("kamailio-conference-3001") is False  # idempotent
+
+    def test_delete_voicemail(self, client):
+        client.ensure_voicemail("a.local", "1001")
+        assert client.delete_voicemail("a.local", "1001") is True
+        assert client.delete_voicemail("a.local", "1001") is False
+
+    def test_delete_queue(self, fpbx_engine):
+        commander = MagicMock()
+        c = FusionpbxClient(engine=fpbx_engine, reloader=MagicMock(), commander=commander)
+        c.ensure_queue("a.local", "5000", agents=["1002", "1003"])
+        commander.reset_mock()
+        assert c.delete_queue("a.local", "5000") is True
+        with fpbx_engine.connect() as conn:
+            q = conn.execute(
+                text("SELECT count(*) FROM v_call_center_queues WHERE queue_extension='5000'")
+            ).scalar_one()
+            tiers = conn.execute(text("SELECT count(*) FROM v_call_center_tiers")).scalar_one()
+            dp = conn.execute(
+                text("SELECT count(*) FROM v_dialplans WHERE dialplan_name='kamailio-queue-5000'")
+            ).scalar_one()
+        assert q == 0 and tiers == 0 and dp == 0
+        cmds = " ".join(call.args[0] for call in commander.call_args_list)
+        assert "queue unload 5000@a.local" in cmds
+        assert c.delete_queue("a.local", "5000") is False  # idempotent

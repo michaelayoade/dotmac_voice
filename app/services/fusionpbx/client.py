@@ -822,6 +822,85 @@ class FusionpbxClient:
             ),
         }
 
+    def delete_dialplan(self, name: str) -> bool:
+        """Idempotently remove a managed public-context dialplan by name."""
+        deleted = False
+        try:
+            with self._engine.begin() as conn:
+                result = conn.execute(
+                    delete(v_dialplans)
+                    .where(v_dialplans.c.dialplan_name == name)
+                    .where(v_dialplans.c.dialplan_context == "public")
+                )
+                deleted = result.rowcount > 0
+        except _UNAVAILABLE as exc:
+            raise ServiceUnavailableError(f"FusionPBX DB unreachable: {exc}") from exc
+        if deleted:
+            self._reload()
+        return deleted
+
+    def delete_voicemail(self, domain_name: str, number: str) -> bool:
+        """Idempotently remove a voicemail box."""
+        deleted = False
+        try:
+            with self._engine.begin() as conn:
+                domain_uuid = self._domain_uuid_for(conn, domain_name)
+                if domain_uuid is None:
+                    return False
+                result = conn.execute(
+                    delete(v_voicemails)
+                    .where(v_voicemails.c.domain_uuid == domain_uuid)
+                    .where(v_voicemails.c.voicemail_id == number)
+                )
+                deleted = result.rowcount > 0
+        except _UNAVAILABLE as exc:
+            raise ServiceUnavailableError(f"FusionPBX DB unreachable: {exc}") from exc
+        if deleted:
+            self._reload()
+        return deleted
+
+    def delete_queue(self, domain_name: str, number: str) -> bool:
+        """Idempotently remove a call-center queue: tiers + queue row + dialplan, and
+        issue a best-effort runtime ``callcenter_config queue unload``. (Agents are
+        left; they are harmless without a referencing tier -- cleanup is a follow-up.)"""
+        deleted = False
+        try:
+            with self._engine.begin() as conn:
+                domain_uuid = self._domain_uuid_for(conn, domain_name)
+                if domain_uuid is None:
+                    return False
+                qrow = conn.execute(
+                    select(v_call_center_queues.c.call_center_queue_uuid)
+                    .where(v_call_center_queues.c.domain_uuid == domain_uuid)
+                    .where(v_call_center_queues.c.queue_extension == number)
+                ).first()
+                if qrow is not None:
+                    conn.execute(
+                        delete(v_call_center_tiers).where(
+                            v_call_center_tiers.c.call_center_queue_uuid
+                            == qrow.call_center_queue_uuid
+                        )
+                    )
+                    conn.execute(
+                        delete(v_call_center_queues).where(
+                            v_call_center_queues.c.call_center_queue_uuid
+                            == qrow.call_center_queue_uuid
+                        )
+                    )
+                    deleted = True
+                dp = conn.execute(
+                    delete(v_dialplans)
+                    .where(v_dialplans.c.dialplan_name == f"kamailio-queue-{number}")
+                    .where(v_dialplans.c.dialplan_context == "public")
+                )
+                deleted = deleted or dp.rowcount > 0
+        except _UNAVAILABLE as exc:
+            raise ServiceUnavailableError(f"FusionPBX DB unreachable: {exc}") from exc
+        if deleted:
+            self._reload()
+            self._commander(f"callcenter_config queue unload {number}@{domain_name}")
+        return deleted
+
     def create_ivr(
         self,
         domain_name: str,
