@@ -31,6 +31,7 @@ from sqlalchemy import (
     delete,
     insert,
     select,
+    update,
 )
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError, InterfaceError, OperationalError
@@ -88,6 +89,26 @@ v_voicemails = Table(
     Column("insert_date", DateTime(timezone=True)),
 )
 
+v_dialplans = Table(
+    "v_dialplans",
+    _metadata,
+    Column("dialplan_uuid", Uuid(as_uuid=False), primary_key=True),
+    Column("domain_uuid", Uuid(as_uuid=False)),
+    Column("app_uuid", Uuid(as_uuid=False)),
+    Column("dialplan_context", String),
+    Column("dialplan_name", String),
+    Column("dialplan_number", String),
+    Column("dialplan_order", Integer),
+    Column("dialplan_enabled", Boolean),
+    Column("dialplan_continue", Boolean),
+    Column("dialplan_xml", String),
+    Column("dialplan_description", String),
+    Column("insert_date", DateTime(timezone=True)),
+)
+
+# FusionPBX "Dialplan" app UUID (owns generic dialplan rows).
+DIALPLAN_APP_UUID = "b1cd7509-5576-469a-892d-d0cfb66a4197"
+
 # The FusionPBX directory dial-string that routes user/<ext> bridges to Kamailio.
 # WS clients register on Kamailio (10.10.10.1), not FreeSWITCH, so the default
 # sofia_contact() dial-string resolves to nothing. FreeSWITCH expands ${...} at
@@ -96,6 +117,20 @@ v_voicemails = Table(
 DIAL_STRING_UNLOCK = (
     "{sip_invite_domain=${domain_name},sip_h_X-Voice-Domain=${domain_name}}"
     "sofia/external/${dialed_user}@10.10.10.1:5060"
+)
+
+# Public-context feature dialplan template (NUMBER token replaced per call). Mirrors
+# the verbatim XML in deploy/core/freeswitch/kamailio-conference.xml. Gated by the
+# Kamailio source IP; FreeSWITCH expands ${...} at runtime.
+_CONFERENCE_TEMPLATE = (
+    '<extension name="kamailio-conference-NUMBER" continue="false">\n'
+    '  <condition field="${network_addr}" expression="^10\\.10\\.10\\.1$"/>\n'
+    '  <condition field="destination_number" expression="^(NUMBER)$">\n'
+    '    <action application="answer"/>\n'
+    '    <action application="sleep" data="500"/>\n'
+    '    <action application="conference" data="NUMBER@default"/>\n'
+    "  </condition>\n"
+    "</extension>"
 )
 
 # Errors that mean the FusionPBX database is unreachable / a transport fault.
@@ -399,6 +434,61 @@ class FusionpbxClient:
         if wrote:
             self._reload()
         return {"voicemail_id": number, "created": True}
+
+    def _ensure_dialplan(
+        self, conn: Connection, *, name: str, number: str, order: int, xml: str
+    ) -> bool:
+        """Idempotently upsert a public-context dialplan row. Returns True if changed."""
+        existing = conn.execute(
+            select(v_dialplans.c.dialplan_uuid, v_dialplans.c.dialplan_xml)
+            .where(v_dialplans.c.dialplan_name == name)
+            .where(v_dialplans.c.dialplan_context == "public")
+        ).first()
+        if existing is not None:
+            if existing.dialplan_xml == xml:
+                return False
+            conn.execute(
+                update(v_dialplans)
+                .where(v_dialplans.c.dialplan_uuid == existing.dialplan_uuid)
+                .values(dialplan_xml=xml, dialplan_order=order)
+            )
+            return True
+        conn.execute(
+            insert(v_dialplans).values(
+                dialplan_uuid=str(uuid.uuid4()),
+                domain_uuid=None,
+                app_uuid=DIALPLAN_APP_UUID,
+                dialplan_context="public",
+                dialplan_name=name,
+                dialplan_number=number,
+                dialplan_order=order,
+                dialplan_enabled=True,
+                dialplan_continue=False,
+                dialplan_xml=xml,
+                dialplan_description="dotmac voice (managed)",
+                insert_date=datetime.now(UTC),
+            )
+        )
+        return True
+
+    def create_conference(self, domain_name: str, number: str) -> dict:
+        """Idempotently provision an FS-hosted conference room <number> (public ctx)."""
+        name = f"kamailio-conference-{number}"
+        xml = _CONFERENCE_TEMPLATE.replace("NUMBER", number)
+        changed = False
+        try:
+            with self._engine.begin() as conn:
+                self._ensure_domain(conn, domain_name)
+                changed = self._ensure_dialplan(
+                    conn, name=name, number=number, order=55, xml=xml
+                )
+        except _UNAVAILABLE as exc:
+            raise ServiceUnavailableError(f"FusionPBX DB unreachable: {exc}") from exc
+        except IntegrityError as exc:
+            raise BadRequestError(f"FusionPBX conference insert failed: {exc}") from exc
+        if changed:
+            self._reload()
+        return {"name": name, "created": changed}
 
     def delete_extension(self, domain_name: str, number: str) -> bool:
         """Delete an extension from a FusionPBX domain.

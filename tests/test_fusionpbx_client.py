@@ -79,6 +79,26 @@ def fpbx_engine() -> Engine:
                 """
             )
         )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE v_dialplans (
+                    dialplan_uuid TEXT PRIMARY KEY,
+                    domain_uuid TEXT,
+                    app_uuid TEXT,
+                    dialplan_context TEXT,
+                    dialplan_name TEXT,
+                    dialplan_number TEXT,
+                    dialplan_order INTEGER,
+                    dialplan_enabled BOOLEAN,
+                    dialplan_continue BOOLEAN,
+                    dialplan_xml TEXT,
+                    dialplan_description TEXT,
+                    insert_date TEXT
+                )
+                """
+            )
+        )
     return engine
 
 
@@ -312,5 +332,30 @@ class TestEnsureVoicemail:
         client.ensure_voicemail("a.local", "1001")
         reloader.reset_mock()
         second = client.ensure_voicemail("a.local", "1001")
+        assert second["created"] is False
+        reloader.assert_not_called()
+
+
+class TestCreateConference:
+    def test_creates_public_dialplan(self, client, fpbx_engine):
+        result = client.create_conference("a.local", "3001")
+        assert result["created"] is True
+        with fpbx_engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT dialplan_context, dialplan_xml FROM v_dialplans "
+                    "WHERE dialplan_name = :n"
+                ),
+                {"n": "kamailio-conference-3001"},
+            ).first()
+        assert row.dialplan_context == "public"
+        assert 'application="conference"' in row.dialplan_xml
+        assert "3001@default" in row.dialplan_xml
+        assert "${network_addr}" in row.dialplan_xml
+
+    def test_is_idempotent(self, client, reloader):
+        client.create_conference("a.local", "3001")
+        reloader.reset_mock()
+        second = client.create_conference("a.local", "3001")
         assert second["created"] is False
         reloader.assert_not_called()
