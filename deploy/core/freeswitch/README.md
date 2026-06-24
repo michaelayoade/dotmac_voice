@@ -91,3 +91,33 @@ Acceptance criteria 1,2,3 met; 6,7 (regression+rollback) verified (direct path 1
 ### State: flag OFF (safe). Flip `#!define ROUTE_VIA_FS` on for FS-in-path.
 ### REMAINING for full acceptance: criterion 5 (voicemail smoke test), criterion 4 (clean teardown),
 ### loop invariant (§11). Multi-domain: replace the single-domain `$rd` hardcode with a header.
+
+## Voicemail smoke test (criterion 5) — WORKING (2026-06-24)
+Call WS-A -> 1002 (unregistered) -> FS bridge fails -> continue_on_fail -> answer + voicemail.
+Verified via harness (scratchpad/voicetest/harness-vm.js):
+- Greeting plays TO WS-A: rx 816 pk; FS log: vm-person -> spell "1002" -> vm-not_available ->
+  vm-record_message (full prompt sequence over the WS-A rtpengine leg).
+- WS-A audio recorded: tx 611 pk; stored `WAVE PCM 16-bit mono 16kHz, 3.92s` valid file at
+  /var/lib/freeswitch/storage/voicemail/default/voicetest.dotmac/1002/msg_*.wav
+- `mod_voicemail.c: Deliver VM to 1002@voicetest.dotmac` + `Update MWI: Messages Waiting yes,
+  Voice Message 1/0` (delivered + MWI set).
+
+Prereqs done: created v_voicemails box for 1002; **mod_voicemail was NOT loaded** (missing from
+v_modules AND modules.conf.xml) — added `<load module="mod_voicemail"/>` after mod_sofia in
+/etc/freeswitch/autoload_configs/modules.conf.xml (backup .bak-voice) so it persists.
+
+### Teardown (criterion 4): clean BYE works, abrupt WS-close leaks
+- Clean hangup (btnHangup -> BYE): tears down cleanly (voicemail call left NO stray channel;
+  rtpengine sessions = 0).
+- Abrupt WS close (browser/tab close, no BYE): the two-way harness closes the browser without a
+  BYE, leaving 1001<->1002 FS legs in CS_EXCHANGE_MEDIA until FS RTP-timeout reaps them.
+  **FOLLOW-UP:** Kamailio `event_route[websocket:closed]` should locate + BYE the affected dialogs
+  (or rely on shorter FS RTP/session timeout). Cleared the strays with `hupall`.
+
+### FusionPBX portal voicemail row — FOLLOW-UP
+mod_voicemail delivers + sets MWI, but no `v_voicemail_messages` row is inserted (FusionPBX's
+voicemail.conf.xml `api-on-*` Lua hook / DB integration not wired on this source build), so the
+self-care portal won't list the message yet. The recording itself is stored + playable.
+
+## ACCEPTANCE: 1✅ 2✅ 3✅ 5✅(core; portal-row follow-up) 6✅ 7✅ | 4 = clean-BYE✅, abrupt-close follow-up
+## State: ROUTE_VIA_FS OFF (safe/known-good). FS-in-path proven (two-way audio + voicemail), one flag-flip away.
