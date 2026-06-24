@@ -8,6 +8,9 @@ class _FakeClient:
     def delete_extension(self, domain, number): return True
     def ensure_voicemail(self, domain, number, *, enabled=True, password=""):
         return {"voicemail_id": number, "created": True}
+    def ensure_switch_settings(self): return {"changed": False}
+    def ensure_routing(self, domain, *, recording=False):
+        return {"name": "kamailio-internal-to-domain", "created": True}
 
 
 def test_put_provisioning_creates_and_syncs(client):

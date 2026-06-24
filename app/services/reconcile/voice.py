@@ -88,6 +88,11 @@ def reconcile_voice(db: Session, client, customer_id: str) -> SyncStatus:
             if ext.voicemail_enabled:
                 client.ensure_voicemail(domain.fusionpbx_domain, ext.number)
 
+        # Bootstrap the switch + ensure the FS-in-path internal routing dialplan
+        # (idempotent). These make extensions actually reachable + voicemail land.
+        client.ensure_switch_settings()
+        client.ensure_routing(domain.fusionpbx_domain)
+
         domain.sync_status = SyncStatus.synced
 
     except ServiceUnavailableError:

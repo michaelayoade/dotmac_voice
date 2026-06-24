@@ -301,6 +301,7 @@ from app.api.deps import require_role  # noqa: E402
 from app.api.file_uploads import router as file_uploads_router  # noqa: E402
 from app.api.notifications import router as notifications_router  # noqa: E402
 from app.api.provisioning import router as provisioning_router  # noqa: E402
+from app.api.voice_features import router as voice_features_router  # noqa: E402
 from app.api.tokens import router as tokens_router  # noqa: E402
 from app.api.webhooks import router as webhooks_router  # noqa: E402
 from app.api.ws import router as ws_router  # noqa: E402
@@ -346,6 +347,7 @@ _include_api_router(billing_router, dependencies=[Depends(require_role("admin"))
 _include_api_router(file_uploads_router)
 _include_api_router(notifications_router, dependencies=[Depends(require_role("admin"))])
 _include_api_router(provisioning_router)
+_include_api_router(voice_features_router)
 _include_api_router(calls_router)
 _include_api_router(cdr_router)
 _include_api_router(webhooks_router)

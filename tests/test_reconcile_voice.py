@@ -15,6 +15,14 @@ class _FakeClient:
     def __init__(self):
         self.created = []
         self.voicemails = []
+        self.routed = []
+
+    def ensure_switch_settings(self):
+        return {"changed": False}
+
+    def ensure_routing(self, domain, *, recording=False):
+        self.routed.append(domain)
+        return {"name": "kamailio-internal-to-domain", "created": True}
 
     def list_extensions(self, domain):
         """Mock list_extensions: currently only knows about 1001."""
@@ -76,6 +84,12 @@ class _FakeClientWithExtras:
     def ensure_voicemail(self, domain, number, *, enabled=True, password=""):
         return {"voicemail_id": number, "created": True}
 
+    def ensure_switch_settings(self):
+        return {"changed": False}
+
+    def ensure_routing(self, domain, *, recording=False):
+        return {"name": "kamailio-internal-to-domain", "created": True}
+
 
 def test_reconcile_deletes_extra_extensions(db_session):
     """Test that reconcile_voice removes live FusionPBX extensions absent from desired state."""
@@ -118,3 +132,17 @@ def test_reconcile_ensures_voicemail_for_enabled_extensions(db_session):
     # 1001 has voicemail enabled -> box ensured; 1002 disabled -> not.
     assert "1001" in client.voicemails
     assert "1002" not in client.voicemails
+
+
+def test_reconcile_ensures_internal_routing(db_session):
+    """reconcile_voice ensures the FS-in-path internal routing dialplan for the domain."""
+    dom = VoiceDomain(customer_id="rt-c1", fusionpbx_domain="rt-c1.local")
+    db_session.add(dom)
+    db_session.flush()
+    db_session.add(Extension(voice_domain_id=dom.id, number="1001"))
+    db_session.flush()
+
+    client = _FakeClient()
+    reconcile_voice(db_session, client, "rt-c1")
+
+    assert "rt-c1.local" in client.routed
