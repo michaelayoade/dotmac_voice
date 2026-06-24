@@ -1,0 +1,19 @@
+<extension name="kamailio-ringgroup-2000" continue="false">
+  <condition field="${network_addr}" expression="^10\.10\.10\.1$"/>
+  <condition field="destination_number" expression="^(2000)$">
+    <action application="set" data="hangup_after_bridge=true"/>
+    <action application="set" data="continue_on_fail=true"/>
+    <action application="export" data="rtp_timeout_sec=30"/>
+    <action application="set" data="ignore_early_media=true"/>
+    <action application="log" data="INFO voice-edge: ring group 2000 -> 1002,1003"/>
+    <action application="bridge" data="user/1002@${sip_req_host},user/1003@${sip_req_host}"/>
+    <action application="answer"/>
+    <action application="sleep" data="500"/>
+    <action application="set" data="voicemail_action=save"/>
+    <action application="set" data="voicemail_id=1002"/>
+    <action application="set" data="voicemail_profile=default"/>
+    <action application="set" data="send_to_voicemail=true"/>
+    <action application="set" data="domain_name=${sip_req_host}"/>
+    <action application="lua" data="app.lua voicemail"/>
+  </condition>
+</extension>

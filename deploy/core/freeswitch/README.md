@@ -169,3 +169,18 @@ because the synthetic fake-mic tone trips silence detection; a real caller recor
 
 ## ALL THREE FOLLOW-UPS DONE: (a) teardown ✅  (b) portal voicemail row ✅  (c) multi-domain ✅
 ## DEPLOYED 2026-06-24: ROUTE_VIA_FS ON (LIVE). Verified: answered call two-way (133/66) + voicemail w/ portal row. Rollback = comment the define + restart kamailio (direct path known-good).
+
+## THE user-bridge unlock + ring groups (2026-06-24)
+**Unlock (linchpin for all bridge-to-extension features):** WS extensions register on Kamailio, not
+FS, so FusionPBX's `user/<ext>` bridges resolve to an empty FS contact. Fix: set each extension's
+`dial_string` to route to Kamailio:
+`{sip_invite_domain=${domain_name},sip_h_X-Voice-Domain=${domain_name}}sofia/external/${dialed_user}@10.10.10.1:5060`
+(see `dialstring-unlock-and-1003.sql`). Safe: the direct 1xxx path bridges sofia/external directly
+(doesn't use user/). This unlocks ring groups, queues, IVR-to-ext, transfers, local_extension.
+Created extension 1003 (3rd member) for multi-party tests.
+
+**Ring group (2000):** public dialplan bridges `user/1002,user/1003` (simultaneous). Verified:
+1001->2000 rings both, 1003 answered, caller two-way (rx883/tx634), 1003 rx492/tx888.
+
+## Tested-working features (FS-in-path): registration, internal call (direct+through-FS), TURN,
+## voicemail+portal row, teardown, multi-domain, CDR, **call recording**, **conference**, **ring group**.
