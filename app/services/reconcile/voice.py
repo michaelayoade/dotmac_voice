@@ -60,11 +60,13 @@ def reconcile_voice(db: Session, client, customer_id: str) -> SyncStatus:
     if not domain:
         raise NotFoundError(f"No voice domain for customer {customer_id}")
 
-    # Collect desired extensions from database (keep rows for feature reconcile)
+    # Collect desired extensions from database (keep rows for feature reconcile).
+    # Suspended (is_active=False) -> desired is empty so reconcile removes the
+    # customer's FusionPBX extensions (can't register/call); models are preserved.
     desired_exts = list(
         db.scalars(select(Extension).where(Extension.voice_domain_id == domain.id))
     )
-    desired = {e.number for e in desired_exts}
+    desired = {e.number for e in desired_exts} if domain.is_active else set()
 
     try:
         # Fetch actual extensions from FusionPBX
@@ -83,15 +85,18 @@ def reconcile_voice(db: Session, client, customer_id: str) -> SyncStatus:
         for number in sorted(delta.to_delete):
             client.delete_extension(domain.fusionpbx_domain, number)
 
-        # Ensure a voicemail box for each voicemail-enabled extension.
-        for ext in sorted(desired_exts, key=lambda e: e.number):
-            if ext.voicemail_enabled:
-                client.ensure_voicemail(domain.fusionpbx_domain, ext.number)
+        if domain.is_active:
+            # Ensure a voicemail box for each voicemail-enabled extension.
+            for ext in sorted(desired_exts, key=lambda e: e.number):
+                if ext.voicemail_enabled:
+                    client.ensure_voicemail(domain.fusionpbx_domain, ext.number)
 
-        # Bootstrap the switch + ensure the FS-in-path internal routing dialplan
-        # (idempotent). These make extensions actually reachable + voicemail land.
-        client.ensure_switch_settings()
-        client.ensure_routing(domain.fusionpbx_domain)
+            # Bootstrap the switch + ensure the FS-in-path internal routing dialplan
+            # (idempotent). These make extensions reachable + voicemail land. (Global
+            # routing is shared, so suspension enforces via extension removal above,
+            # not by tearing down routing.)
+            client.ensure_switch_settings()
+            client.ensure_routing(domain.fusionpbx_domain)
 
         domain.sync_status = SyncStatus.synced
 

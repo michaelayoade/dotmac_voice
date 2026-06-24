@@ -134,6 +134,51 @@ def test_reconcile_ensures_voicemail_for_enabled_extensions(db_session):
     assert "1002" not in client.voicemails
 
 
+def test_reconcile_suspend_removes_extensions_keeps_models(db_session):
+    """Suspended (is_active=False): reconcile removes the customer's FusionPBX
+    extensions, but the dotmac_voice Extension models are preserved for resume."""
+    from sqlalchemy import select as _select
+
+    dom = VoiceDomain(
+        customer_id="susp-c1", fusionpbx_domain="susp-c1.local", is_active=False
+    )
+    db_session.add(dom)
+    db_session.flush()
+    db_session.add(Extension(voice_domain_id=dom.id, number="1001"))
+    db_session.flush()
+
+    class _Fake:
+        def __init__(self):
+            self.deleted = []
+
+        def list_extensions(self, d):
+            return [{"number": "1001"}]  # present on the PBX
+
+        def create_extension(self, d, n, password, display_name=""):
+            raise AssertionError("must not create while suspended")
+
+        def delete_extension(self, d, n):
+            self.deleted.append(n)
+            return True
+
+        def ensure_voicemail(self, d, n, *, enabled=True, password=""):
+            raise AssertionError("must not ensure voicemail while suspended")
+
+        def ensure_switch_settings(self):
+            raise AssertionError("must not bootstrap while suspended")
+
+        def ensure_routing(self, d, *, recording=False):
+            raise AssertionError("must not ensure routing while suspended")
+
+    fake = _Fake()
+    reconcile_voice(db_session, fake, "susp-c1")
+    assert fake.deleted == ["1001"]  # removed from PBX
+    exts = list(
+        db_session.scalars(_select(Extension).where(Extension.voice_domain_id == dom.id))
+    )
+    assert len(exts) == 1  # model preserved
+
+
 def test_reconcile_ensures_internal_routing(db_session):
     """reconcile_voice ensures the FS-in-path internal routing dialplan for the domain."""
     dom = VoiceDomain(customer_id="rt-c1", fusionpbx_domain="rt-c1.local")

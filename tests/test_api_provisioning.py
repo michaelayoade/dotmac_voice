@@ -28,6 +28,38 @@ def test_put_provisioning_requires_key(client):
     assert r.status_code == 401
 
 
+def test_suspend_and_resume(client, db_session):
+    from sqlalchemy import select
+
+    from app.api.provisioning import get_fusionpbx_client
+    from app.models.voice import VoiceDomain
+
+    client.app.dependency_overrides[get_fusionpbx_client] = lambda: _FakeClient()
+    client.put(
+        "/provisioning/domains/susp-c1",
+        json={"fusionpbx_domain": "susp-c1.local", "extensions": [{"number": "1001"}]},
+        headers=INGRESS,
+    )
+    assert client.post("/provisioning/domains/susp-c1/suspend", headers=INGRESS).status_code == 200
+    db_session.expire_all()
+    dom = db_session.scalar(select(VoiceDomain).where(VoiceDomain.customer_id == "susp-c1"))
+    assert dom.is_active is False
+
+    assert client.post("/provisioning/domains/susp-c1/resume", headers=INGRESS).status_code == 200
+    db_session.expire_all()
+    dom = db_session.scalar(select(VoiceDomain).where(VoiceDomain.customer_id == "susp-c1"))
+    assert dom.is_active is True
+    client.app.dependency_overrides.pop(get_fusionpbx_client)
+
+
+def test_suspend_unknown_domain_404(client):
+    from app.api.provisioning import get_fusionpbx_client
+
+    client.app.dependency_overrides[get_fusionpbx_client] = lambda: _FakeClient()
+    assert client.post("/provisioning/domains/nope/suspend", headers=INGRESS).status_code == 404
+    client.app.dependency_overrides.pop(get_fusionpbx_client)
+
+
 def test_put_provisioning_replaces_extension_set(client, db_session):
     """Test that PUT replaces the desired extension set entirely (add, remove, update)."""
     from app.api.provisioning import get_fusionpbx_client

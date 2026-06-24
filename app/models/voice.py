@@ -30,6 +30,9 @@ class VoiceDomain(Base):
     sync_status: Mapped[SyncStatus] = mapped_column(
         Enum(SyncStatus), default=SyncStatus.pending, nullable=False
     )
+    # Service state: suspended (False) -> reconcile removes the customer's FusionPBX
+    # extensions (can't register/call) while preserving the dotmac_voice models.
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     last_reconciled_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )

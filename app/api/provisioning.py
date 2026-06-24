@@ -9,6 +9,7 @@ from app.api.deps import get_db
 from app.config import settings
 from app.models.voice import Extension, VoiceDomain
 from app.schemas.voice import DomainIntent, DomainSyncResult
+from app.services.exceptions import NotFoundError
 from app.services.fusionpbx.client import FusionpbxClient
 from app.services.ingress_auth import require_ingress
 from app.services.reconcile.voice import reconcile_voice
@@ -80,3 +81,37 @@ def put_domain(
     status = reconcile_voice(db, client, customer_id)
     _commit(db)
     return DomainSyncResult(customer_id=customer_id, sync_status=status.value)
+
+
+def _set_active(
+    db: Session, client: FusionpbxClient, customer_id: str, active: bool
+) -> DomainSyncResult:
+    domain = db.scalar(select(VoiceDomain).where(VoiceDomain.customer_id == customer_id))
+    if not domain:
+        raise NotFoundError(f"No voice domain for customer {customer_id}")
+    domain.is_active = active
+    db.flush()
+    status = reconcile_voice(db, client, customer_id)
+    _commit(db)
+    return DomainSyncResult(customer_id=customer_id, sync_status=status.value)
+
+
+@router.post("/domains/{customer_id}/suspend", response_model=DomainSyncResult)
+def suspend_domain(
+    customer_id: str,
+    db: Session = Depends(get_db),
+    client: FusionpbxClient = Depends(get_fusionpbx_client),
+) -> DomainSyncResult:
+    """Suspend a customer (non-payment): reconcile removes their FusionPBX
+    extensions so phones can't register/call; dotmac_voice models are preserved."""
+    return _set_active(db, client, customer_id, False)
+
+
+@router.post("/domains/{customer_id}/resume", response_model=DomainSyncResult)
+def resume_domain(
+    customer_id: str,
+    db: Session = Depends(get_db),
+    client: FusionpbxClient = Depends(get_fusionpbx_client),
+) -> DomainSyncResult:
+    """Resume a suspended customer: reconcile recreates their extensions."""
+    return _set_active(db, client, customer_id, True)
