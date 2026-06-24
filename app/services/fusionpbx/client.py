@@ -73,7 +73,18 @@ v_extensions = Table(
     Column("enabled", Boolean),
     Column("directory_first_name", String),
     Column("description", String),
+    Column("dial_string", String),
     Column("insert_date", DateTime(timezone=True)),
+)
+
+# The FusionPBX directory dial-string that routes user/<ext> bridges to Kamailio.
+# WS clients register on Kamailio (10.10.10.1), not FreeSWITCH, so the default
+# sofia_contact() dial-string resolves to nothing. FreeSWITCH expands ${...} at
+# runtime; stored verbatim. Unlocks ring groups / IVR / queues / transfers.
+# See deploy/core/freeswitch/dialstring-unlock-and-1003.sql.
+DIAL_STRING_UNLOCK = (
+    "{sip_invite_domain=${domain_name},sip_h_X-Voice-Domain=${domain_name}}"
+    "sofia/external/${dialed_user}@10.10.10.1:5060"
 )
 
 # Errors that mean the FusionPBX database is unreachable / a transport fault.
@@ -316,6 +327,7 @@ class FusionpbxClient:
                         call_timeout=30,
                         enabled=True,
                         directory_first_name=display_name,
+                        dial_string=DIAL_STRING_UNLOCK,
                         insert_date=datetime.now(UTC),
                     )
                 )

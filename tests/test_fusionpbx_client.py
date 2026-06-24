@@ -58,6 +58,7 @@ def fpbx_engine() -> Engine:
                     enabled BOOLEAN,
                     directory_first_name TEXT,
                     description TEXT,
+                    dial_string TEXT,
                     insert_date TEXT,
                     insert_user TEXT
                 )
@@ -259,3 +260,20 @@ class TestReloadIsNonFatal:
         # Write succeeds despite the reloader raising.
         result = c.create_domain("a.local")
         assert result["name"] == "a.local"
+
+
+class TestDialStringUnlock:
+    """create_extension must stamp the Kamailio dial-string so FusionPBX user/<ext>
+    bridges (ring groups, IVR, queues) reach WS clients registered on Kamailio."""
+
+    def test_create_extension_sets_dial_string(self, client, fpbx_engine):
+        from app.services.fusionpbx.client import DIAL_STRING_UNLOCK
+
+        client.create_extension("a.local", "1001")
+        with fpbx_engine.connect() as conn:
+            ds = conn.execute(
+                text("SELECT dial_string FROM v_extensions WHERE extension = :e"),
+                {"e": "1001"},
+            ).scalar_one()
+        assert ds == DIAL_STRING_UNLOCK
+        assert "sofia/external/${dialed_user}@10.10.10.1:5060" in ds
