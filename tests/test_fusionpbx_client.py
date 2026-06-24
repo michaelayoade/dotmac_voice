@@ -359,3 +359,39 @@ class TestCreateConference:
         second = client.create_conference("a.local", "3001")
         assert second["created"] is False
         reloader.assert_not_called()
+
+
+class TestCreateRingGroup:
+    def test_bridges_members_simultaneously(self, client, fpbx_engine):
+        result = client.create_ring_group("a.local", "2000", ["1002", "1003"])
+        assert result["created"] is True
+        with fpbx_engine.connect() as conn:
+            xml = conn.execute(
+                text("SELECT dialplan_xml FROM v_dialplans WHERE dialplan_name = :n"),
+                {"n": "kamailio-ringgroup-2000"},
+            ).scalar_one()
+        # simultaneous = comma-joined user/ bridges routed via the dial-string unlock
+        assert 'user/1002@${domain_name},user/1003@${domain_name}' in xml
+        assert 'application="bridge"' in xml
+
+    def test_is_idempotent(self, client, reloader):
+        client.create_ring_group("a.local", "2000", ["1002", "1003"])
+        reloader.reset_mock()
+        second = client.create_ring_group("a.local", "2000", ["1002", "1003"])
+        assert second["created"] is False
+        reloader.assert_not_called()
+
+
+class TestCreateIvr:
+    def test_builds_menu(self, client, fpbx_engine):
+        result = client.create_ivr("a.local", "4000", {"1": "1002", "2": "3001"})
+        assert result["created"] is True
+        with fpbx_engine.connect() as conn:
+            xml = conn.execute(
+                text("SELECT dialplan_xml FROM v_dialplans WHERE dialplan_name = :n"),
+                {"n": "kamailio-ivr-4000"},
+            ).scalar_one()
+        assert 'application="play_and_get_digits"' in xml
+        assert "^[12]$" in xml
+        assert "${ivr_choice} == 1 ? 1002" in xml
+        assert 'data="${ivr_target} XML public"' in xml

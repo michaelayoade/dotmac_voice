@@ -490,6 +490,97 @@ class FusionpbxClient:
             self._reload()
         return {"name": name, "created": changed}
 
+    def create_ring_group(
+        self,
+        domain_name: str,
+        number: str,
+        members: list[str],
+        *,
+        strategy: str = "simultaneous",
+        timeout: int = 30,
+    ) -> dict:
+        """Idempotently provision a ring group <number> bridging member extensions.
+
+        Members bridge via ``user/<ext>@${domain_name}``, which the dial-string
+        unlock routes to Kamailio -> the WS clients. ``simultaneous`` = comma-join.
+        """
+        sep = "," if strategy == "simultaneous" else "|"
+        bridge_data = sep.join(f"user/{m}@${{domain_name}}" for m in members)
+        name = f"kamailio-ringgroup-{number}"
+        xml = (
+            f'<extension name="{name}" continue="false">\n'
+            '  <condition field="${network_addr}" expression="^10\\.10\\.10\\.1$"/>\n'
+            f'  <condition field="destination_number" expression="^({number})$">\n'
+            '    <action application="set" data="hangup_after_bridge=true"/>\n'
+            '    <action application="set" data="continue_on_fail=true"/>\n'
+            f'    <action application="set" data="call_timeout={timeout}"/>\n'
+            '    <action application="export" data="rtp_timeout_sec=30"/>\n'
+            f'    <action application="bridge" data="{bridge_data}"/>\n'
+            "  </condition>\n"
+            "</extension>"
+        )
+        changed = False
+        try:
+            with self._engine.begin() as conn:
+                self._ensure_domain(conn, domain_name)
+                changed = self._ensure_dialplan(
+                    conn, name=name, number=number, order=52, xml=xml
+                )
+        except _UNAVAILABLE as exc:
+            raise ServiceUnavailableError(f"FusionPBX DB unreachable: {exc}") from exc
+        except IntegrityError as exc:
+            raise BadRequestError(f"FusionPBX ring group insert failed: {exc}") from exc
+        if changed:
+            self._reload()
+        return {"name": name, "created": changed}
+
+    def create_ivr(
+        self,
+        domain_name: str,
+        number: str,
+        options: dict[str, str],
+        *,
+        greeting: str = "ivr/ivr-enter_ext_pound.wav",
+        timeout: int = 6000,
+    ) -> dict:
+        """Idempotently provision an IVR menu <number>: play greeting, collect one
+        digit, transfer to the mapped target (re-enters the public context)."""
+        items = sorted(options.items())
+        digits = "".join(d for d, _ in items)
+        regex = f"^[{digits}]$"
+        # Nested cond() mapping the collected digit -> target (last entry = default).
+        expr = items[-1][1]
+        for digit, tgt in reversed(items[:-1]):
+            expr = "${cond(${ivr_choice} == " + digit + " ? " + tgt + " : " + expr + ")}"
+        name = f"kamailio-ivr-{number}"
+        xml = (
+            f'<extension name="{name}" continue="false">\n'
+            '  <condition field="${network_addr}" expression="^10\\.10\\.10\\.1$"/>\n'
+            f'  <condition field="destination_number" expression="^({number})$">\n'
+            '    <action application="answer"/>\n'
+            '    <action application="sleep" data="500"/>\n'
+            '    <action application="play_and_get_digits" '
+            f'data="1 1 3 {timeout} # {greeting} silence_stream://250 ivr_choice {regex}"/>\n'
+            f'    <action application="set" data="ivr_target={expr}"/>\n'
+            '    <action application="transfer" data="${ivr_target} XML public"/>\n'
+            "  </condition>\n"
+            "</extension>"
+        )
+        changed = False
+        try:
+            with self._engine.begin() as conn:
+                self._ensure_domain(conn, domain_name)
+                changed = self._ensure_dialplan(
+                    conn, name=name, number=number, order=54, xml=xml
+                )
+        except _UNAVAILABLE as exc:
+            raise ServiceUnavailableError(f"FusionPBX DB unreachable: {exc}") from exc
+        except IntegrityError as exc:
+            raise BadRequestError(f"FusionPBX IVR insert failed: {exc}") from exc
+        if changed:
+            self._reload()
+        return {"name": name, "created": changed}
+
     def delete_extension(self, domain_name: str, number: str) -> bool:
         """Delete an extension from a FusionPBX domain.
 
