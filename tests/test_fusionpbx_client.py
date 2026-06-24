@@ -82,6 +82,22 @@ def fpbx_engine() -> Engine:
         conn.execute(
             text(
                 """
+                CREATE TABLE v_voicemail_messages (
+                    voicemail_message_uuid TEXT PRIMARY KEY,
+                    domain_uuid TEXT,
+                    voicemail_uuid TEXT,
+                    created_epoch INTEGER,
+                    caller_id_name TEXT,
+                    caller_id_number TEXT,
+                    message_length INTEGER,
+                    message_status TEXT
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
                 CREATE TABLE v_dialplans (
                     dialplan_uuid TEXT PRIMARY KEY,
                     domain_uuid TEXT,
@@ -614,3 +630,39 @@ class TestMultiTenantIsolation:
         client.create_conference("b.local", "3001")
         assert client.list_managed_dialplans("a.local") == {"kamailio-conference-a.local-3001"}
         assert client.list_managed_dialplans("b.local") == {"kamailio-conference-b.local-3001"}
+
+
+class TestVoicemailMessages:
+    def test_lists_messages_newest_first(self, client, fpbx_engine):
+        client.create_domain("a.local")
+        client.ensure_voicemail("a.local", "1002")
+        with fpbx_engine.begin() as conn:
+            box = conn.execute(
+                text(
+                    "SELECT voicemail_uuid, domain_uuid FROM v_voicemails "
+                    "WHERE voicemail_id = '1002'"
+                )
+            ).first()
+            for i, epoch in enumerate((100, 200)):
+                conn.execute(
+                    text(
+                        "INSERT INTO v_voicemail_messages (voicemail_message_uuid, "
+                        "domain_uuid, voicemail_uuid, created_epoch, caller_id_name, "
+                        "caller_id_number, message_length, message_status) "
+                        "VALUES (:u, :d, :v, :e, :n, :num, :len, :s)"
+                    ),
+                    {
+                        "u": f"00000000-0000-0000-0000-00000000000{i}",
+                        "d": box.domain_uuid, "v": box.voicemail_uuid,
+                        "e": epoch, "n": "Caller", "num": f"234800000{i}",
+                        "len": 12, "s": "",
+                    },
+                )
+        msgs = client.list_voicemail_messages("a.local", "1002")
+        assert len(msgs) == 2
+        assert msgs[0]["created_epoch"] == 200  # newest first
+        assert msgs[0]["duration_seconds"] == 12
+        assert msgs[0]["caller_id_number"].startswith("234800000")
+
+    def test_empty_when_no_box(self, client):
+        assert client.list_voicemail_messages("a.local", "9999") == []

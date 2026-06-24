@@ -90,6 +90,19 @@ v_voicemails = Table(
     Column("insert_date", DateTime(timezone=True)),
 )
 
+v_voicemail_messages = Table(
+    "v_voicemail_messages",
+    _metadata,
+    Column("voicemail_message_uuid", Uuid(as_uuid=False), primary_key=True),
+    Column("domain_uuid", Uuid(as_uuid=False)),
+    Column("voicemail_uuid", Uuid(as_uuid=False)),
+    Column("created_epoch", Integer),
+    Column("caller_id_name", String),
+    Column("caller_id_number", String),
+    Column("message_length", Integer),
+    Column("message_status", String),
+)
+
 v_dialplans = Table(
     "v_dialplans",
     _metadata,
@@ -1020,6 +1033,48 @@ class FusionpbxClient:
         for cmd in cmds:
             self._commander(cmd)
         return {"queues": n_queues, "agents": n_agents}
+
+    def list_voicemail_messages(self, domain_name: str, extension: str) -> list[dict]:
+        """List stored voicemail messages for an extension's box, newest first.
+        Metadata only (no audio payload)."""
+        try:
+            with self._engine.begin() as conn:
+                domain_uuid = self._domain_uuid_for(conn, domain_name)
+                if domain_uuid is None:
+                    return []
+                rows = conn.execute(
+                    select(
+                        v_voicemail_messages.c.voicemail_message_uuid,
+                        v_voicemail_messages.c.created_epoch,
+                        v_voicemail_messages.c.caller_id_name,
+                        v_voicemail_messages.c.caller_id_number,
+                        v_voicemail_messages.c.message_length,
+                        v_voicemail_messages.c.message_status,
+                    )
+                    .select_from(
+                        v_voicemail_messages.join(
+                            v_voicemails,
+                            v_voicemail_messages.c.voicemail_uuid
+                            == v_voicemails.c.voicemail_uuid,
+                        )
+                    )
+                    .where(v_voicemails.c.domain_uuid == domain_uuid)
+                    .where(v_voicemails.c.voicemail_id == extension)
+                    .order_by(v_voicemail_messages.c.created_epoch.desc())
+                ).fetchall()
+        except _UNAVAILABLE as exc:
+            raise ServiceUnavailableError(f"FusionPBX DB unreachable: {exc}") from exc
+        return [
+            {
+                "message_uuid": r.voicemail_message_uuid,
+                "created_epoch": r.created_epoch,
+                "caller_id_name": r.caller_id_name,
+                "caller_id_number": r.caller_id_number,
+                "duration_seconds": r.message_length,
+                "status": r.message_status,
+            }
+            for r in rows
+        ]
 
     def create_ivr(
         self,

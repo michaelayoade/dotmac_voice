@@ -14,6 +14,9 @@ class _FakeClient:
     def list_managed_dialplans(self, domain): return set()
     def list_queues(self, domain): return set()
     def resync_queues(self, domain): return {"queues": 0, "agents": 0}
+    def list_voicemail_messages(self, domain, extension):
+        return [{"message_uuid": "m1", "created_epoch": 1, "caller_id_name": "X",
+                 "caller_id_number": "234", "duration_seconds": 5, "status": ""}]
 
 
 def test_put_provisioning_creates_and_syncs(client):
@@ -88,6 +91,31 @@ def test_resync_all(client):
     )
     r = client.post("/provisioning/resync-all", headers=INGRESS)
     assert r.status_code == 200 and r.json()["resynced"] >= 1
+    client.app.dependency_overrides.pop(get_fusionpbx_client)
+
+
+def test_get_voicemail_messages(client):
+    from app.api.provisioning import get_fusionpbx_client
+
+    client.app.dependency_overrides[get_fusionpbx_client] = lambda: _FakeClient()
+    client.put(
+        "/provisioning/domains/vmm-c1",
+        json={"fusionpbx_domain": "vmm-c1.local", "extensions": []},
+        headers=INGRESS,
+    )
+    r = client.get("/provisioning/domains/vmm-c1/extensions/1002/voicemails", headers=INGRESS)
+    assert r.status_code == 200
+    data = r.json()
+    assert len(data) == 1 and data[0]["message_uuid"] == "m1"
+    client.app.dependency_overrides.pop(get_fusionpbx_client)
+
+
+def test_get_voicemail_messages_unknown_domain_404(client):
+    from app.api.provisioning import get_fusionpbx_client
+
+    client.app.dependency_overrides[get_fusionpbx_client] = lambda: _FakeClient()
+    r = client.get("/provisioning/domains/nope/extensions/1002/voicemails", headers=INGRESS)
+    assert r.status_code == 404
     client.app.dependency_overrides.pop(get_fusionpbx_client)
 
 

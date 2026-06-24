@@ -180,3 +180,17 @@ def resync_all(
             client.resync_queues(domain.fusionpbx_domain)
     _commit(db)
     return {"resynced": len(domains)}
+
+
+@router.get("/domains/{customer_id}/extensions/{extension}/voicemails")
+def get_voicemail_messages(
+    customer_id: str,
+    extension: str,
+    db: Session = Depends(get_db),
+    client: FusionpbxClient = Depends(get_fusionpbx_client),
+) -> list[dict]:
+    """List stored voicemail messages for a customer's extension (metadata only)."""
+    domain = db.scalar(select(VoiceDomain).where(VoiceDomain.customer_id == customer_id))
+    if not domain:
+        raise NotFoundError(f"No voice domain for customer {customer_id}")
+    return client.list_voicemail_messages(domain.fusionpbx_domain, extension)
