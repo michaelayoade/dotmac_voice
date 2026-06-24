@@ -502,9 +502,20 @@ class FusionpbxClient:
         return {"voicemail_id": number, "created": True}
 
     def _ensure_dialplan(
-        self, conn: Connection, *, name: str, number: str, order: int, xml: str
+        self,
+        conn: Connection,
+        *,
+        name: str,
+        number: str,
+        order: int,
+        xml: str,
+        tag: str = "dotmac-voice:managed",
     ) -> bool:
-        """Idempotently upsert a public-context dialplan row. Returns True if changed."""
+        """Idempotently upsert a public-context dialplan row. Returns True if changed.
+
+        ``tag`` is stored in dialplan_description so a domain's managed feature
+        dialplans are listable for drift reconciliation.
+        """
         existing = conn.execute(
             select(v_dialplans.c.dialplan_uuid, v_dialplans.c.dialplan_xml)
             .where(v_dialplans.c.dialplan_name == name)
@@ -531,7 +542,7 @@ class FusionpbxClient:
                 dialplan_enabled=True,
                 dialplan_continue=False,
                 dialplan_xml=xml,
-                dialplan_description="dotmac voice (managed)",
+                dialplan_description=tag,
                 insert_date=datetime.now(UTC),
             )
         )
@@ -546,7 +557,8 @@ class FusionpbxClient:
             with self._engine.begin() as conn:
                 self._ensure_domain(conn, domain_name)
                 changed = self._ensure_dialplan(
-                    conn, name=name, number=number, order=55, xml=xml
+                    conn, name=name, number=number, order=55, xml=xml,
+                    tag=f"dotmac-voice:feature:{domain_name}",
                 )
         except _UNAVAILABLE as exc:
             raise ServiceUnavailableError(f"FusionPBX DB unreachable: {exc}") from exc
@@ -590,7 +602,8 @@ class FusionpbxClient:
             with self._engine.begin() as conn:
                 self._ensure_domain(conn, domain_name)
                 changed = self._ensure_dialplan(
-                    conn, name=name, number=number, order=52, xml=xml
+                    conn, name=name, number=number, order=52, xml=xml,
+                    tag=f"dotmac-voice:feature:{domain_name}",
                 )
         except _UNAVAILABLE as exc:
             raise ServiceUnavailableError(f"FusionPBX DB unreachable: {exc}") from exc
@@ -645,7 +658,8 @@ class FusionpbxClient:
             with self._engine.begin() as conn:
                 self._ensure_domain(conn, domain_name)
                 changed = self._ensure_dialplan(
-                    conn, name="kamailio-internal-to-domain", number="", order=50, xml=xml
+                    conn, name="kamailio-internal-to-domain", number="", order=50, xml=xml,
+                    tag="dotmac-voice:routing",
                 )
         except _UNAVAILABLE as exc:
             raise ServiceUnavailableError(f"FusionPBX DB unreachable: {exc}") from exc
@@ -802,7 +816,8 @@ class FusionpbxClient:
                     "</extension>"
                 )
                 if self._ensure_dialplan(
-                    conn, name=f"kamailio-queue-{number}", number=number, order=53, xml=dp_xml
+                    conn, name=f"kamailio-queue-{number}", number=number, order=53, xml=dp_xml,
+                    tag=f"dotmac-voice:queue:{domain_name}",
                 ):
                     changed = True
         except _UNAVAILABLE as exc:
@@ -901,6 +916,37 @@ class FusionpbxClient:
             self._commander(f"callcenter_config queue unload {number}@{domain_name}")
         return deleted
 
+    def list_managed_dialplans(self, domain_name: str) -> set[str]:
+        """Names of per-domain FEATURE dialplans (conference/ring-group/IVR) managed
+        for this domain -- for drift reconciliation. Excludes shared routing + queues."""
+        tag = f"dotmac-voice:feature:{domain_name}"
+        try:
+            with self._engine.begin() as conn:
+                rows = conn.execute(
+                    select(v_dialplans.c.dialplan_name)
+                    .where(v_dialplans.c.dialplan_description == tag)
+                    .where(v_dialplans.c.dialplan_context == "public")
+                ).fetchall()
+        except _UNAVAILABLE as exc:
+            raise ServiceUnavailableError(f"FusionPBX DB unreachable: {exc}") from exc
+        return {r.dialplan_name for r in rows}
+
+    def list_queues(self, domain_name: str) -> set[str]:
+        """Queue extensions managed for this domain (scoped by domain_uuid)."""
+        try:
+            with self._engine.begin() as conn:
+                domain_uuid = self._domain_uuid_for(conn, domain_name)
+                if domain_uuid is None:
+                    return set()
+                rows = conn.execute(
+                    select(v_call_center_queues.c.queue_extension).where(
+                        v_call_center_queues.c.domain_uuid == domain_uuid
+                    )
+                ).fetchall()
+        except _UNAVAILABLE as exc:
+            raise ServiceUnavailableError(f"FusionPBX DB unreachable: {exc}") from exc
+        return {r.queue_extension for r in rows}
+
     def create_ivr(
         self,
         domain_name: str,
@@ -938,7 +984,8 @@ class FusionpbxClient:
             with self._engine.begin() as conn:
                 self._ensure_domain(conn, domain_name)
                 changed = self._ensure_dialplan(
-                    conn, name=name, number=number, order=54, xml=xml
+                    conn, name=name, number=number, order=54, xml=xml,
+                    tag=f"dotmac-voice:feature:{domain_name}",
                 )
         except _UNAVAILABLE as exc:
             raise ServiceUnavailableError(f"FusionPBX DB unreachable: {exc}") from exc

@@ -11,6 +11,8 @@ class _FakeClient:
     def ensure_switch_settings(self): return {"changed": False}
     def ensure_routing(self, domain, *, recording=False):
         return {"name": "kamailio-internal-to-domain", "created": True}
+    def list_managed_dialplans(self, domain): return set()
+    def list_queues(self, domain): return set()
 
 
 def test_put_provisioning_creates_and_syncs(client):

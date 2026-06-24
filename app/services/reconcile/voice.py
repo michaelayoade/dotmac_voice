@@ -6,7 +6,15 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.voice import Extension, SyncStatus, VoiceDomain
+from app.models.voice import (
+    ConferenceRoom,
+    Extension,
+    IvrMenu,
+    Queue,
+    RingGroup,
+    SyncStatus,
+    VoiceDomain,
+)
 from app.services.exceptions import NotFoundError, ServiceUnavailableError
 
 
@@ -97,6 +105,39 @@ def reconcile_voice(db: Session, client, customer_id: str) -> SyncStatus:
             # not by tearing down routing.)
             client.ensure_switch_settings()
             client.ensure_routing(domain.fusionpbx_domain)
+
+            # Reconcile features: apply desired models, then delete undefined (drift).
+            dom_name = domain.fusionpbx_domain
+            desired_dialplans: set[str] = set()
+            for c in db.scalars(
+                select(ConferenceRoom).where(ConferenceRoom.voice_domain_id == domain.id)
+            ):
+                client.create_conference(dom_name, c.number)
+                desired_dialplans.add(f"kamailio-conference-{c.number}")
+            for r in db.scalars(
+                select(RingGroup).where(RingGroup.voice_domain_id == domain.id)
+            ):
+                client.create_ring_group(
+                    dom_name, r.number, list(r.members),
+                    strategy=r.strategy, timeout=r.timeout,
+                )
+                desired_dialplans.add(f"kamailio-ringgroup-{r.number}")
+            for i in db.scalars(
+                select(IvrMenu).where(IvrMenu.voice_domain_id == domain.id)
+            ):
+                client.create_ivr(dom_name, i.number, dict(i.options), greeting=i.greeting)
+                desired_dialplans.add(f"kamailio-ivr-{i.number}")
+            for name in client.list_managed_dialplans(dom_name) - desired_dialplans:
+                client.delete_dialplan(name)
+
+            desired_queues: set[str] = set()
+            for q in db.scalars(select(Queue).where(Queue.voice_domain_id == domain.id)):
+                client.ensure_queue(
+                    dom_name, q.number, agents=list(q.agents), name=q.name, strategy=q.strategy
+                )
+                desired_queues.add(q.number)
+            for num in client.list_queues(dom_name) - desired_queues:
+                client.delete_queue(dom_name, num)
 
         domain.sync_status = SyncStatus.synced
 

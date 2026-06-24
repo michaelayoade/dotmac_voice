@@ -24,6 +24,12 @@ class _FakeClient:
         self.routed.append(domain)
         return {"name": "kamailio-internal-to-domain", "created": True}
 
+    def list_managed_dialplans(self, domain):
+        return set()
+
+    def list_queues(self, domain):
+        return set()
+
     def list_extensions(self, domain):
         """Mock list_extensions: currently only knows about 1001."""
         return [{"number": "1001"}]
@@ -89,6 +95,12 @@ class _FakeClientWithExtras:
 
     def ensure_routing(self, domain, *, recording=False):
         return {"name": "kamailio-internal-to-domain", "created": True}
+
+    def list_managed_dialplans(self, domain):
+        return set()
+
+    def list_queues(self, domain):
+        return set()
 
 
 def test_reconcile_deletes_extra_extensions(db_session):
@@ -177,6 +189,89 @@ def test_reconcile_suspend_removes_extensions_keeps_models(db_session):
         db_session.scalars(_select(Extension).where(Extension.voice_domain_id == dom.id))
     )
     assert len(exts) == 1  # model preserved
+
+
+def test_reconcile_applies_and_drifts_features(db_session):
+    """reconcile applies feature desired-state models and deletes undefined (drift)."""
+    from app.models.voice import ConferenceRoom, IvrMenu, Queue, RingGroup
+
+    dom = VoiceDomain(customer_id="feat-c1", fusionpbx_domain="feat-c1.local")
+    db_session.add(dom)
+    db_session.flush()
+    db_session.add_all([
+        ConferenceRoom(voice_domain_id=dom.id, number="3001"),
+        RingGroup(voice_domain_id=dom.id, number="2000", members=["1002", "1003"]),
+        IvrMenu(voice_domain_id=dom.id, number="4000", options={"1": "1002"}),
+        Queue(voice_domain_id=dom.id, number="5000", agents=["1002"], name="Support"),
+    ])
+    db_session.flush()
+
+    class _Fake:
+        def __init__(self):
+            self.created = []
+            self.deleted_dialplans = []
+            self.deleted_queues = []
+            self.queue_calls = []
+
+        def list_extensions(self, d):
+            return []
+
+        def create_extension(self, d, n, password, display_name=""):
+            pass
+
+        def delete_extension(self, d, n):
+            return True
+
+        def ensure_voicemail(self, d, n, *, enabled=True, password=""):
+            return {}
+
+        def ensure_switch_settings(self):
+            return {}
+
+        def ensure_routing(self, d, *, recording=False):
+            return {}
+
+        def create_conference(self, d, number):
+            self.created.append(("conf", number))
+
+        def create_ring_group(self, d, number, members, *, strategy="simultaneous", timeout=30):
+            self.created.append(("rg", number, tuple(members)))
+
+        def create_ivr(self, d, number, options, *, greeting="x"):
+            self.created.append(("ivr", number))
+
+        def ensure_queue(self, d, number, *, agents, name=None, strategy="ring-all"):
+            self.queue_calls.append(number)
+            return {}
+
+        def list_managed_dialplans(self, d):
+            # includes an orphan (9999) not in the desired models
+            return {
+                "kamailio-conference-3001",
+                "kamailio-ringgroup-2000",
+                "kamailio-ivr-4000",
+                "kamailio-ivr-9999",
+            }
+
+        def list_queues(self, d):
+            return {"5000", "5999"}  # 5999 is an orphan
+
+        def delete_dialplan(self, name):
+            self.deleted_dialplans.append(name)
+            return True
+
+        def delete_queue(self, d, number):
+            self.deleted_queues.append(number)
+            return True
+
+    fake = _Fake()
+    reconcile_voice(db_session, fake, "feat-c1")
+
+    assert {"conf", "rg", "ivr"} <= {c[0] for c in fake.created}
+    assert "5000" in fake.queue_calls
+    # drift: undefined feature dialplan + queue removed; defined ones kept
+    assert fake.deleted_dialplans == ["kamailio-ivr-9999"]
+    assert fake.deleted_queues == ["5999"]
 
 
 def test_reconcile_ensures_internal_routing(db_session):
