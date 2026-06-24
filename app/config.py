@@ -216,6 +216,45 @@ def validate_settings(s: Settings) -> list[ConfigWarning]:
                 critical=True,
             )
         )
+    elif production and not s.esl_password:
+        warnings.append(
+            ConfigWarning(
+                "ESL_PASSWORD is not set",
+                critical=True,
+            )
+        )
+
+    refresh_cookie_secure = os.getenv("REFRESH_COOKIE_SECURE", "true").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if production and not refresh_cookie_secure:
+        warnings.append(
+            ConfigWarning(
+                "REFRESH_COOKIE_SECURE must be true in production",
+                critical=True,
+            )
+        )
+
+    if production and not s.voice_ingress_api_keys:
+        warnings.append(
+            ConfigWarning(
+                "VOICE_INGRESS_API_KEYS is not set - voice ingress endpoints will reject all requests",
+                critical=True,
+            )
+        )
+
+    if production and (
+        not s.token_signing_key or len(s.token_signing_key) < 32
+    ):
+        warnings.append(
+            ConfigWarning(
+                "TOKEN_SIGNING_KEY must be at least 32 characters in production",
+                critical=True,
+            )
+        )
 
     for cidr in os.getenv("TRUSTED_PROXY_CIDRS", "").split(","):
         cidr = cidr.strip()
