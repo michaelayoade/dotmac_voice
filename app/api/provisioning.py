@@ -7,7 +7,14 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.config import settings
-from app.models.voice import Extension, VoiceDomain
+from app.models.voice import (
+    ConferenceRoom,
+    Extension,
+    IvrMenu,
+    Queue,
+    RingGroup,
+    VoiceDomain,
+)
 from app.schemas.voice import DomainIntent, DomainSyncResult
 from app.services.exceptions import NotFoundError
 from app.services.fusionpbx.client import FusionpbxClient
@@ -115,3 +122,26 @@ def resume_domain(
 ) -> DomainSyncResult:
     """Resume a suspended customer: reconcile recreates their extensions."""
     return _set_active(db, client, customer_id, True)
+
+
+@router.delete("/domains/{customer_id}")
+def deprovision_domain(
+    customer_id: str,
+    db: Session = Depends(get_db),
+    client: FusionpbxClient = Depends(get_fusionpbx_client),
+) -> dict:
+    """Deprovision a customer: delete all feature/extension models, reconcile to an
+    empty desired state (removes everything from FusionPBX), then drop the domain."""
+    domain = db.scalar(select(VoiceDomain).where(VoiceDomain.customer_id == customer_id))
+    if not domain:
+        raise NotFoundError(f"No voice domain for customer {customer_id}")
+    # Force the full removal path even if the customer was suspended.
+    domain.is_active = True
+    for cls in (ConferenceRoom, RingGroup, IvrMenu, Queue, Extension):
+        for obj in db.scalars(select(cls).where(cls.voice_domain_id == domain.id)):
+            db.delete(obj)
+    db.flush()
+    reconcile_voice(db, client, customer_id)  # empty desired -> removes all from FusionPBX
+    db.delete(domain)
+    _commit(db)
+    return {"customer_id": customer_id, "deprovisioned": True}

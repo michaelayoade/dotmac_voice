@@ -152,7 +152,7 @@ def test_reconcile_suspend_removes_extensions_keeps_models(db_session):
     from sqlalchemy import select as _select
 
     dom = VoiceDomain(
-        customer_id="susp-c1", fusionpbx_domain="susp-c1.local", is_active=False
+        customer_id="susprec-c1", fusionpbx_domain="susprec-c1.local", is_active=False
     )
     db_session.add(dom)
     db_session.flush()
@@ -183,7 +183,7 @@ def test_reconcile_suspend_removes_extensions_keeps_models(db_session):
             raise AssertionError("must not ensure routing while suspended")
 
     fake = _Fake()
-    reconcile_voice(db_session, fake, "susp-c1")
+    reconcile_voice(db_session, fake, "susprec-c1")
     assert fake.deleted == ["1001"]  # removed from PBX
     exts = list(
         db_session.scalars(_select(Extension).where(Extension.voice_domain_id == dom.id))
@@ -195,7 +195,7 @@ def test_reconcile_applies_and_drifts_features(db_session):
     """reconcile applies feature desired-state models and deletes undefined (drift)."""
     from app.models.voice import ConferenceRoom, IvrMenu, Queue, RingGroup
 
-    dom = VoiceDomain(customer_id="feat-c1", fusionpbx_domain="feat-c1.local")
+    dom = VoiceDomain(customer_id="featrec-c1", fusionpbx_domain="featrec-c1.local")
     db_session.add(dom)
     db_session.flush()
     db_session.add_all([
@@ -265,7 +265,7 @@ def test_reconcile_applies_and_drifts_features(db_session):
             return True
 
     fake = _Fake()
-    reconcile_voice(db_session, fake, "feat-c1")
+    reconcile_voice(db_session, fake, "featrec-c1")
 
     assert {"conf", "rg", "ivr"} <= {c[0] for c in fake.created}
     assert "5000" in fake.queue_calls

@@ -62,6 +62,34 @@ def test_suspend_unknown_domain_404(client):
     client.app.dependency_overrides.pop(get_fusionpbx_client)
 
 
+def test_deprovision_removes_domain_and_extensions(client, db_session):
+    from sqlalchemy import select
+
+    from app.api.provisioning import get_fusionpbx_client
+    from app.models.voice import Extension, VoiceDomain
+
+    client.app.dependency_overrides[get_fusionpbx_client] = lambda: _FakeClient()
+    client.put(
+        "/provisioning/domains/dp-c1",
+        json={"fusionpbx_domain": "dp-c1.local", "extensions": [{"number": "1001"}]},
+        headers=INGRESS,
+    )
+    dom = db_session.scalar(select(VoiceDomain).where(VoiceDomain.customer_id == "dp-c1"))
+    assert dom is not None
+
+    r = client.delete("/provisioning/domains/dp-c1", headers=INGRESS)
+    assert r.status_code == 200 and r.json()["deprovisioned"] is True
+    db_session.expire_all()
+    assert db_session.scalar(
+        select(VoiceDomain).where(VoiceDomain.customer_id == "dp-c1")
+    ) is None
+    assert (
+        db_session.scalar(select(Extension).where(Extension.voice_domain_id == dom.id))
+        is None
+    )
+    client.app.dependency_overrides.pop(get_fusionpbx_client)
+
+
 def test_put_provisioning_replaces_extension_set(client, db_session):
     """Test that PUT replaces the desired extension set entirely (add, remove, update)."""
     from app.api.provisioning import get_fusionpbx_client

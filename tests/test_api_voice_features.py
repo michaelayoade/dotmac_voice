@@ -87,6 +87,29 @@ def test_feature_endpoints_call_primitives(client):
     client.app.dependency_overrides.pop(get_fusionpbx_client)
 
 
+def test_feature_delete_removes_model(client, db_session):
+    from sqlalchemy import select
+
+    from app.api.provisioning import get_fusionpbx_client
+    from app.models.voice import ConferenceRoom, VoiceDomain
+
+    fake = _FakeClient()
+    _provision_domain(client, fake, "del-c1", "del-c1.local")
+    base = "/provisioning/domains/del-c1/features"
+    assert client.post(f"{base}/conferences", json={"number": "3001"}, headers=INGRESS).status_code == 200
+    dom = db_session.scalar(select(VoiceDomain).where(VoiceDomain.customer_id == "del-c1"))
+    assert db_session.scalar(
+        select(ConferenceRoom).where(ConferenceRoom.voice_domain_id == dom.id)
+    ) is not None
+
+    assert client.delete(f"{base}/conferences/3001", headers=INGRESS).status_code == 200
+    db_session.expire_all()
+    assert db_session.scalar(
+        select(ConferenceRoom).where(ConferenceRoom.voice_domain_id == dom.id)
+    ) is None
+    client.app.dependency_overrides.pop(get_fusionpbx_client)
+
+
 def test_feature_endpoint_requires_ingress(client):
     r = client.post("/provisioning/domains/x/features/conferences", json={"number": "3001"})
     assert r.status_code == 401
