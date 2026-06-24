@@ -1,6 +1,7 @@
 """Tests for voice reconciliation service."""
+
+from app.models.voice import Extension, SyncStatus, VoiceDomain
 from app.services.reconcile.voice import compute_delta, reconcile_voice
-from app.models.voice import VoiceDomain, Extension, SyncStatus
 
 
 def test_compute_delta_diffs_sets():
@@ -51,6 +52,7 @@ class _FakeClientWithExtras:
     """Mock FusionPBX client with extra extensions not in desired state."""
     def __init__(self):
         self.created = []
+        self.deleted = []
 
     def list_extensions(self, domain):
         """Mock list_extensions: returns desired + extra 9999."""
@@ -60,13 +62,14 @@ class _FakeClientWithExtras:
         """Mock create_extension: record that this number was created."""
         self.created.append(number)
 
+    def delete_extension(self, domain, number):
+        """Mock delete_extension: record that this number was deleted."""
+        self.deleted.append(number)
+        return True
 
-def test_reconcile_marks_drift_on_extras(db_session):
-    """Test that reconcile_voice marks drift when FusionPBX has extra extensions.
 
-    Tier-0 policy: drift, never delete. If desired state is {1001} but FusionPBX
-    has {1001, 9999}, mark as drift and do NOT attempt deletion.
-    """
+def test_reconcile_deletes_extra_extensions(db_session):
+    """Test that reconcile_voice removes live FusionPBX extensions absent from desired state."""
     # Create domain
     dom = VoiceDomain(customer_id="drift-c1", fusionpbx_domain="drift-c1.local")
     db_session.add(dom)
@@ -80,12 +83,10 @@ def test_reconcile_marks_drift_on_extras(db_session):
     client = _FakeClientWithExtras()
     status = reconcile_voice(db_session, client, "drift-c1")
 
-    # Verify drift status returned and set on domain
-    assert status == SyncStatus.drift
-    assert dom.sync_status == SyncStatus.drift
-
-    # Verify no deletions attempted (client has no delete method)
-    assert not hasattr(client, 'deleted'), "Client should have no delete_extension method"
+    # Verify exact desired state enforcement
+    assert status == SyncStatus.synced
+    assert dom.sync_status == SyncStatus.synced
+    assert client.deleted == ["9999"]
 
     # Verify no creations (1001 already exists)
     assert len(client.created) == 0

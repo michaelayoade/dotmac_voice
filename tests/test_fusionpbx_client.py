@@ -186,6 +186,33 @@ class TestCreateExtension:
         reloader.assert_called()
 
 
+class TestDeleteExtension:
+    def test_deletes_existing_extension(self, client, fpbx_engine, reloader):
+        client.create_extension("a.local", "1001")
+        reloader.reset_mock()
+
+        assert client.delete_extension("a.local", "1001") is True
+
+        with fpbx_engine.connect() as conn:
+            count = conn.execute(
+                text("SELECT COUNT(*) FROM v_extensions WHERE extension = :e"),
+                {"e": "1001"},
+            ).scalar_one()
+        assert count == 0
+        reloader.assert_called_once()
+
+    def test_missing_extension_is_noop(self, client, reloader):
+        client.create_domain("a.local")
+        reloader.reset_mock()
+
+        assert client.delete_extension("a.local", "9999") is False
+        reloader.assert_not_called()
+
+    def test_missing_domain_is_noop(self, client, reloader):
+        assert client.delete_extension("missing.local", "1001") is False
+        reloader.assert_not_called()
+
+
 class TestErrorMapping:
     def test_operational_error_maps_to_service_unavailable(self, reloader):
         engine = create_engine("sqlite+pysqlite:///:memory:", poolclass=StaticPool)

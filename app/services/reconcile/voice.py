@@ -38,7 +38,8 @@ def reconcile_voice(db: Session, client, customer_id: str) -> SyncStatus:
     """Reconcile desired extensions vs actual FusionPBX extensions.
 
     Reads desired Extension rows from database, fetches actual extensions
-    from FusionPBX client, computes delta, and creates missing extensions.
+    from FusionPBX client, computes delta, creates missing extensions, and
+    deletes stale extensions so the live PBX matches desired state.
     Sets VoiceDomain.sync_status and last_reconciled_at.
 
     Args:
@@ -80,8 +81,11 @@ def reconcile_voice(db: Session, client, customer_id: str) -> SyncStatus:
                 domain.fusionpbx_domain, number, password="", display_name=""
             )
 
-        # Mark status based on extras: drift if extras exist, else synced
-        domain.sync_status = SyncStatus.drift if delta.to_delete else SyncStatus.synced
+        # Delete stale extensions (sorted for determinism)
+        for number in sorted(delta.to_delete):
+            client.delete_extension(domain.fusionpbx_domain, number)
+
+        domain.sync_status = SyncStatus.synced
 
     except ServiceUnavailableError:
         # Mark as error if FusionPBX is unavailable

@@ -28,6 +28,7 @@ from sqlalchemy import (
     Table,
     Uuid,
     create_engine,
+    delete,
     insert,
     select,
 )
@@ -330,3 +331,34 @@ class FusionpbxClient:
             "extension_uuid": extension_uuid,
             "password": secret,
         }
+
+    def delete_extension(self, domain_name: str, number: str) -> bool:
+        """Delete an extension from a FusionPBX domain.
+
+        Args:
+            domain_name: The domain_name to resolve.
+            number: The extension number to remove.
+
+        Returns:
+            True when a row was deleted, False when the domain or extension was absent.
+
+        Raises:
+            ServiceUnavailableError: If the FusionPBX DB is unreachable.
+        """
+        try:
+            with self._engine.begin() as conn:
+                domain_uuid = self._domain_uuid_for(conn, domain_name)
+                if domain_uuid is None:
+                    return False
+                result = conn.execute(
+                    delete(v_extensions).where(
+                        v_extensions.c.domain_uuid == domain_uuid,
+                        v_extensions.c.extension == number,
+                    )
+                )
+                deleted = (result.rowcount or 0) > 0
+        except _UNAVAILABLE as exc:
+            raise ServiceUnavailableError(f"FusionPBX DB unreachable: {exc}") from exc
+        if deleted:
+            self._reload()
+        return deleted
