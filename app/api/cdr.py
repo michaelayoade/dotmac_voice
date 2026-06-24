@@ -41,21 +41,21 @@ def post_ingest(
 @router.get("", response_model=list[CdrRead])
 def get_cdrs(
     rating_status: str = "raw",
+    customer_id: str | None = None,
     limit: int = Query(default=100, ge=1, le=1000),
     db: Session = Depends(get_db),
 ) -> list[CdrRead]:
-    """Return CDRs filtered by rating_status, newest first."""
-    try:
-        status = CdrRatingStatus(rating_status)
-    except ValueError:
-        status = CdrRatingStatus.raw
-
-    stmt = (
-        select(Cdr)
-        .where(Cdr.rating_status == status)
-        .order_by(Cdr.created_at.desc())
-        .limit(limit)
-    )
+    """Return CDRs newest first. With ``customer_id`` -> that customer's call history
+    (all rating statuses); otherwise the rating-status feed (default raw)."""
+    stmt = select(Cdr).order_by(Cdr.created_at.desc()).limit(limit)
+    if customer_id is not None:
+        stmt = stmt.where(Cdr.customer_id == customer_id)
+    else:
+        try:
+            status = CdrRatingStatus(rating_status)
+        except ValueError:
+            status = CdrRatingStatus.raw
+        stmt = stmt.where(Cdr.rating_status == status)
     rows = list(db.scalars(stmt).all())
     return [
         CdrRead(

@@ -110,3 +110,22 @@ def test_feed_rejects_bad_limit(client):
     # limit=5000 should fail (le=1000)
     r = client.get("/cdr?limit=5000", headers=INGRESS)
     assert r.status_code == 422, r.text
+
+
+def test_get_cdrs_by_customer(client, db_session):
+    """GET /cdr?customer_id=X returns that customer's call history, newest first."""
+    from app.models.voice import Cdr
+
+    db_session.add(Cdr(call_uuid="cdrcust-u1", customer_id="cdr-cust1", caller="1001", callee="1002"))
+    db_session.add(Cdr(call_uuid="cdrcust-u2", customer_id="cdr-other", caller="x", callee="y"))
+    db_session.commit()
+
+    r = client.get("/cdr?customer_id=cdr-cust1", headers=INGRESS)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert all(d["customer_id"] == "cdr-cust1" for d in data)
+    assert "cdrcust-u1" in [d["call_uuid"] for d in data]
+
+    # unknown customer -> empty list
+    r2 = client.get("/cdr?customer_id=nobody-here", headers=INGRESS)
+    assert r2.status_code == 200 and r2.json() == []
