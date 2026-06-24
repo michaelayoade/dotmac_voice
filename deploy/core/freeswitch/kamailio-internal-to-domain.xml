@@ -5,6 +5,10 @@
     <action application="set" data="continue_on_fail=true"/>
     <action application="export" data="rtp_timeout_sec=30"/>
     <action application="export" data="rtp_hold_timeout_sec=1800"/>
+    <action application="set" data="RECORD_STEREO=true"/>
+    <action application="set" data="recording_follow_transfer=true"/>
+    <action application="set" data="record_session_file=/var/lib/freeswitch/recordings/${sip_req_host}/${strftime(%Y-%m-%d)}/${uuid}.wav"/>
+    <action application="set" data="execute_on_answer=record_session ${record_session_file}"/>
     <action application="log" data="INFO voice-edge: bridge ${destination_number} to kamailio"/>
     <action application="bridge" data="{sip_h_X-Voice-Domain=${sip_req_host}}sofia/external/${destination_number}@10.10.10.1:5060"/>
     <action application="answer"/>
