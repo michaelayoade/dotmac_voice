@@ -196,3 +196,15 @@ VERIFIED: 1001->5000 queued, agent 1003 rung via the unlock + answered. OPEN: ca
 is one-way (both WS legs send to FS, neither receives back) — needs per-leg rtpengine debugging in
 the callcenter bridge (same class as the original FS-in-path media work; also gates hold/transfer
 in-dialog re-INVITE handling). Files: queue-setup.sql, kamailio-queue.xml.
+
+## Queue media debug (2026-06-24, pass a)
+- FIXED a real bug: REPLY_FROM_WS once-guard relayed RAW WebRTC SDP on retransmitted 200 OKs from
+  FS-originated legs (queue/ring-group agents) -> FS latched the unreachable browser address. Removed
+  the guard on the FS-facing answer (plain RTP, no DTLS to reset). Live path re-verified two-way.
+- RULED OUT transcode (forcing PCMU on both legs didn't fix it).
+- ROOT CAUSE (open): mod_callcenter bridges the pre-answered, queued caller to the callback agent and
+  RE-ANCHORS media (`switch_ivr_bridge CS_CONSUME_MEDIA->HIBERNATE->CS_RESET`); with both legs
+  rtpengine-anchored WebRTC, the FS->WS direction breaks on both legs (one-way). Ring group works
+  because it's a DIRECT bridge (no pre-answer-into-queue, no callback re-anchor). Needs deeper
+  mod_callcenter media handling (bypass/proxy flags or a non-pre-answer queue pattern) OR validation
+  with a real softphone (may be specific to the synthetic webphone's re-negotiation handling).
