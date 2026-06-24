@@ -13,6 +13,7 @@ class _FakeClient:
         return {"name": "kamailio-internal-to-domain", "created": True}
     def list_managed_dialplans(self, domain): return set()
     def list_queues(self, domain): return set()
+    def resync_queues(self, domain): return {"queues": 0, "agents": 0}
 
 
 def test_put_provisioning_creates_and_syncs(client):
@@ -59,6 +60,34 @@ def test_suspend_unknown_domain_404(client):
 
     client.app.dependency_overrides[get_fusionpbx_client] = lambda: _FakeClient()
     assert client.post("/provisioning/domains/nope/suspend", headers=INGRESS).status_code == 404
+    client.app.dependency_overrides.pop(get_fusionpbx_client)
+
+
+def test_resync_domain(client):
+    from app.api.provisioning import get_fusionpbx_client
+
+    client.app.dependency_overrides[get_fusionpbx_client] = lambda: _FakeClient()
+    client.put(
+        "/provisioning/domains/rsy-c1",
+        json={"fusionpbx_domain": "rsy-c1.local", "extensions": []},
+        headers=INGRESS,
+    )
+    r = client.post("/provisioning/domains/rsy-c1/resync", headers=INGRESS)
+    assert r.status_code == 200 and r.json()["sync_status"] == "synced"
+    client.app.dependency_overrides.pop(get_fusionpbx_client)
+
+
+def test_resync_all(client):
+    from app.api.provisioning import get_fusionpbx_client
+
+    client.app.dependency_overrides[get_fusionpbx_client] = lambda: _FakeClient()
+    client.put(
+        "/provisioning/domains/rsa-c1",
+        json={"fusionpbx_domain": "rsa-c1.local", "extensions": []},
+        headers=INGRESS,
+    )
+    r = client.post("/provisioning/resync-all", headers=INGRESS)
+    assert r.status_code == 200 and r.json()["resynced"] >= 1
     client.app.dependency_overrides.pop(get_fusionpbx_client)
 
 

@@ -145,3 +145,38 @@ def deprovision_domain(
     db.delete(domain)
     _commit(db)
     return {"customer_id": customer_id, "deprovisioned": True}
+
+
+@router.post("/domains/{customer_id}/resync", response_model=DomainSyncResult)
+def resync_domain(
+    customer_id: str,
+    db: Session = Depends(get_db),
+    client: FusionpbxClient = Depends(get_fusionpbx_client),
+) -> DomainSyncResult:
+    """Recover a customer after a FreeSWITCH restart: re-apply desired state, then
+    force-re-issue runtime queue state from the DB (reconcile alone won't, since the
+    DB is unchanged)."""
+    domain = db.scalar(select(VoiceDomain).where(VoiceDomain.customer_id == customer_id))
+    if not domain:
+        raise NotFoundError(f"No voice domain for customer {customer_id}")
+    status = reconcile_voice(db, client, customer_id)
+    if domain.is_active:
+        client.resync_queues(domain.fusionpbx_domain)
+    _commit(db)
+    return DomainSyncResult(customer_id=customer_id, sync_status=status.value)
+
+
+@router.post("/resync-all")
+def resync_all(
+    db: Session = Depends(get_db),
+    client: FusionpbxClient = Depends(get_fusionpbx_client),
+) -> dict:
+    """Fleet recovery after a global FreeSWITCH restart: reconcile + runtime-resync
+    every domain."""
+    domains = list(db.scalars(select(VoiceDomain)))
+    for domain in domains:
+        reconcile_voice(db, client, domain.customer_id)
+        if domain.is_active:
+            client.resync_queues(domain.fusionpbx_domain)
+    _commit(db)
+    return {"resynced": len(domains)}

@@ -970,6 +970,57 @@ class FusionpbxClient:
             raise ServiceUnavailableError(f"FusionPBX DB unreachable: {exc}") from exc
         return {r.queue_extension for r in rows}
 
+    def resync_queues(self, domain_name: str) -> dict:
+        """Re-issue runtime callcenter_config for ALL of the domain's queues/agents/
+        tiers from the persisted DB, restoring in-memory mod_callcenter state after a
+        FreeSWITCH restart (DB rows alone don't reload). Idempotent -- mod_callcenter
+        tolerates re-load/re-add."""
+        cmds: list[str] = []
+        n_queues = n_agents = 0
+        try:
+            with self._engine.begin() as conn:
+                domain_uuid = self._domain_uuid_for(conn, domain_name)
+                if domain_uuid is None:
+                    return {"queues": 0, "agents": 0}
+                for q in conn.execute(
+                    select(v_call_center_queues.c.queue_extension).where(
+                        v_call_center_queues.c.domain_uuid == domain_uuid
+                    )
+                ).fetchall():
+                    n_queues += 1
+                    cmds.append(
+                        f"callcenter_config queue load {q.queue_extension}@{domain_name}"
+                    )
+                for a in conn.execute(
+                    select(
+                        v_call_center_agents.c.call_center_agent_uuid,
+                        v_call_center_agents.c.agent_contact,
+                    ).where(v_call_center_agents.c.domain_uuid == domain_uuid)
+                ).fetchall():
+                    n_agents += 1
+                    cmds += [
+                        f"callcenter_config agent add {a.call_center_agent_uuid} 'callback'",
+                        f"callcenter_config agent set contact {a.call_center_agent_uuid} '{a.agent_contact}'",
+                        f"callcenter_config agent set status {a.call_center_agent_uuid} 'Available (On Demand)'",
+                    ]
+                for t in conn.execute(
+                    select(
+                        v_call_center_tiers.c.queue_name,
+                        v_call_center_tiers.c.call_center_agent_uuid,
+                        v_call_center_tiers.c.tier_level,
+                        v_call_center_tiers.c.tier_position,
+                    ).where(v_call_center_tiers.c.domain_uuid == domain_uuid)
+                ).fetchall():
+                    cmds.append(
+                        f"callcenter_config tier add {t.queue_name}@{domain_name} "
+                        f"{t.call_center_agent_uuid} {t.tier_level} {t.tier_position}"
+                    )
+        except _UNAVAILABLE as exc:
+            raise ServiceUnavailableError(f"FusionPBX DB unreachable: {exc}") from exc
+        for cmd in cmds:
+            self._commander(cmd)
+        return {"queues": n_queues, "agents": n_agents}
+
     def create_ivr(
         self,
         domain_name: str,

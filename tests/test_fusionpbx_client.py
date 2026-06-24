@@ -558,6 +558,27 @@ class TestDeletePrimitives:
         assert c.delete_queue("a.local", "5000") is False  # idempotent
 
 
+class TestResyncQueues:
+    def test_reissues_runtime_from_db(self, fpbx_engine):
+        commander = MagicMock()
+        c = FusionpbxClient(engine=fpbx_engine, reloader=MagicMock(), commander=commander)
+        c.ensure_queue("a.local", "5000", agents=["1002", "1003"])
+        commander.reset_mock()  # simulate FS restart: DB intact, runtime lost
+        result = c.resync_queues("a.local")
+        cmds = [call.args[0] for call in commander.call_args_list]
+        assert "callcenter_config queue load 5000@a.local" in cmds
+        assert any("agent set contact" in x and "user/1002@a.local" in x for x in cmds)
+        assert any(x.startswith("callcenter_config tier add 5000@a.local") for x in cmds)
+        assert result == {"queues": 1, "agents": 2}
+
+    def test_no_queues_is_noop(self, fpbx_engine):
+        commander = MagicMock()
+        c = FusionpbxClient(engine=fpbx_engine, reloader=MagicMock(), commander=commander)
+        c.create_domain("a.local")
+        assert c.resync_queues("a.local") == {"queues": 0, "agents": 0}
+        commander.assert_not_called()
+
+
 class TestMultiTenantIsolation:
     def test_same_number_distinct_per_domain(self, client, fpbx_engine):
         """Two customers can both use conference 3001 without colliding: distinct
