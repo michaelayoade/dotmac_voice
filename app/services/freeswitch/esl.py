@@ -105,7 +105,13 @@ class EslBridge:
         self._conn.send("events plain ALL")
 
     def originate(self, command: str) -> str:  # pragma: no cover - exercised in integration, not unit tests
-        """Send an originate command over ESL and return the response.
+        """Open a short-lived ESL connection, send an originate command, and close.
+
+        Click-to-dial is a one-off action and ``get_esl_bridge()`` hands out a
+        fresh, *unconnected* bridge per request, so this manages its own
+        connection (connect -> send -> close) instead of relying on the
+        long-lived event connection (``self._conn``), which is not present here.
+        Mirrors :func:`reloadxml`.
 
         Args:
             command: A FreeSWITCH ESL command string (e.g. built by build_originate_command).
@@ -113,8 +119,31 @@ class EslBridge:
         Returns:
             The raw response string from FreeSWITCH ESL.
         """
-        self._conn.send(command)
-        return self._conn.get_response()
+        import greenswitch
+
+        conn = greenswitch.InboundESL(
+            host=self._host, port=self._port, password=self._password
+        )
+        conn.connect()
+        try:
+            response = conn.send(command)
+            return getattr(response, "data", "") or str(response)
+        finally:
+            sock = getattr(conn, "sock", None)
+            if sock is not None:
+                sock.close()
+
+    def is_alive(self) -> bool:  # pragma: no cover - depends on live greenswitch conn
+        """Best-effort liveness of the streaming connection.
+
+        Returns False once connected and the underlying socket reports closed;
+        defaults to True when liveness can't be determined, so the consumer
+        doesn't reconnect spuriously.
+        """
+        conn = self._conn
+        if conn is None:
+            return False
+        return bool(getattr(conn, "connected", True))
 
     def _dispatch(self, event) -> None:  # pragma: no cover
         """Dispatch normalized event to callback."""

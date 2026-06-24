@@ -97,6 +97,12 @@ class Settings:
     esl_host: str = os.getenv("ESL_HOST", "localhost")
     esl_port: int = int(os.getenv("ESL_PORT", "8021"))
     esl_password: str = os.getenv("ESL_PASSWORD", "ClueCon")
+    # Start the background ESL->webhook consumer at app startup (disable in tests).
+    esl_consumer_enabled: bool = os.getenv("ESL_CONSUMER_ENABLED", "true").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
     edge_wss_url: str = os.getenv("EDGE_WSS_URL", "wss://sip.dotmac.io:443")
     voice_ingress_api_keys: str = os.getenv("VOICE_INGRESS_API_KEYS", "")
     voice_ingress_allowed_ips: str = os.getenv("VOICE_INGRESS_ALLOWED_IPS", "")
@@ -199,6 +205,14 @@ def validate_settings(s: Settings) -> list[ConfigWarning]:
         warnings.append(
             ConfigWarning(
                 "TOKEN_SIGNING_KEY uses the development default",
+                critical=True,
+            )
+        )
+
+    if production and s.esl_password == "ClueCon":  # noqa: S105
+        warnings.append(
+            ConfigWarning(
+                "ESL_PASSWORD uses the FreeSWITCH default (ClueCon)",
                 critical=True,
             )
         )

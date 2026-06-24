@@ -68,11 +68,27 @@ async def lifespan(app: FastAPI):  # type: ignore[arg-type]
     finally:
         db.close()
 
+    # Start the ESL->webhook consumer so FreeSWITCH call events become CRM
+    # webhooks. Non-fatal: it reconnects on its own if FreeSWITCH isn't up yet.
+    app.state.esl_consumer = None
+    if settings.esl_consumer_enabled:
+        try:
+            from app.services.freeswitch.consumer import EslConsumer
+
+            consumer = EslConsumer()
+            consumer.start()
+            app.state.esl_consumer = consumer
+        except Exception:
+            logger.exception("Failed to start ESL consumer; call webhooks will not fire")
+
     logger.info("Application started (pid=%s)", os.getpid())
     yield
 
     # ── Shutdown ─────────────────────────────────────────
     logger.info("Application shutting down")
+    consumer = getattr(app.state, "esl_consumer", None)
+    if consumer is not None:
+        consumer.stop()
 
 
 app = FastAPI(title="DotMac Voice API", lifespan=lifespan)

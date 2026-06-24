@@ -101,6 +101,7 @@ class MockSettings:
     esl_host = "localhost"
     esl_port = 8021
     esl_password = "ClueCon"
+    esl_consumer_enabled = False
     edge_wss_url = "wss://sip.dotmac.io:443"
     voice_ingress_api_keys = "test-ingress-key"
     voice_ingress_allowed_ips = ""
