@@ -114,6 +114,22 @@ def fpbx_engine() -> Engine:
                 """
             )
         )
+        conn.execute(text(
+            "CREATE TABLE v_call_center_queues (call_center_queue_uuid TEXT PRIMARY KEY, "
+            "domain_uuid TEXT, queue_name TEXT, queue_extension TEXT, queue_strategy TEXT, "
+            "queue_moh_sound TEXT, insert_date TEXT)"
+        ))
+        conn.execute(text(
+            "CREATE TABLE v_call_center_agents (call_center_agent_uuid TEXT PRIMARY KEY, "
+            "domain_uuid TEXT, agent_id TEXT, agent_name TEXT, agent_type TEXT, "
+            "agent_contact TEXT, agent_status TEXT, insert_date TEXT)"
+        ))
+        conn.execute(text(
+            "CREATE TABLE v_call_center_tiers (call_center_tier_uuid TEXT PRIMARY KEY, "
+            "domain_uuid TEXT, call_center_queue_uuid TEXT, call_center_agent_uuid TEXT, "
+            "queue_name TEXT, agent_name TEXT, tier_level INTEGER, tier_position INTEGER, "
+            "insert_date TEXT)"
+        ))
     return engine
 
 
@@ -454,4 +470,52 @@ class TestEnsureSwitchSettings:
         reloader.reset_mock()
         second = client.ensure_switch_settings()
         assert second["changed"] is False
+        reloader.assert_not_called()
+
+
+class TestEnsureQueue:
+    def test_provisions_queue_agents_tiers_dialplan(self, fpbx_engine):
+        commander = MagicMock()
+        c = FusionpbxClient(
+            engine=fpbx_engine, reloader=MagicMock(), commander=commander
+        )
+        result = c.ensure_queue("a.local", "5000", agents=["1002", "1003"])
+        assert result["created"] is True
+        with fpbx_engine.connect() as conn:
+            q = conn.execute(
+                text(
+                    "SELECT queue_name FROM v_call_center_queues "
+                    "WHERE queue_extension='5000'"
+                )
+            ).first()
+            agents = conn.execute(
+                text("SELECT agent_id, agent_contact FROM v_call_center_agents")
+            ).fetchall()
+            tiers = conn.execute(
+                text("SELECT count(*) FROM v_call_center_tiers")
+            ).scalar_one()
+            dp = conn.execute(
+                text(
+                    "SELECT dialplan_xml FROM v_dialplans "
+                    "WHERE dialplan_name='kamailio-queue-5000'"
+                )
+            ).scalar_one()
+        # GOTCHA: callcenter.conf names the queue by queue_name -> set it to the number.
+        assert q.queue_name == "5000"
+        assert {a.agent_id for a in agents} == {"1002", "1003"}
+        assert all("user/" in a.agent_contact for a in agents)
+        assert tiers == 2
+        assert "callcenter" in dp and "5000@a.local" in dp
+        # Runtime activation issued over ESL (DB rows alone don't load into mod_callcenter).
+        cmds = " ".join(call.args[0] for call in commander.call_args_list)
+        assert "queue load 5000@a.local" in cmds
+        assert "tier add 5000@a.local" in cmds
+
+    def test_is_idempotent(self, fpbx_engine):
+        reloader = MagicMock()
+        c = FusionpbxClient(engine=fpbx_engine, reloader=reloader, commander=MagicMock())
+        c.ensure_queue("a.local", "5000", agents=["1002"])
+        reloader.reset_mock()
+        second = c.ensure_queue("a.local", "5000", agents=["1002"])
+        assert second["created"] is False
         reloader.assert_not_called()

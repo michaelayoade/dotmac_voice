@@ -33,6 +33,25 @@ def reloadxml(host: str, port: int, password: str) -> None:  # pragma: no cover 
             sock.close()
 
 
+def command(host: str, port: int, password: str, cmd: str) -> None:  # pragma: no cover - touches a real ESL socket
+    """Issue an arbitrary FreeSWITCH ``api`` command over ESL (best-effort).
+
+    Used for runtime config the DB-write + reloadxml path can't do (e.g.
+    ``callcenter_config queue load``). DB is the source of truth; failures are
+    non-fatal and should be caught by the caller.
+    """
+    import greenswitch
+
+    conn = greenswitch.InboundESL(host=host, port=port, password=password)
+    conn.connect()
+    try:
+        conn.send(f"api {cmd}")
+    finally:
+        sock = getattr(conn, "sock", None)
+        if sock is not None:
+            sock.close()
+
+
 @dataclass(frozen=True)
 class CallEvent:
     """Normalized call event from FreeSWITCH."""

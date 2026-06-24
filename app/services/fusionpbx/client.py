@@ -118,6 +118,45 @@ v_default_settings = Table(
     Column("insert_date", DateTime(timezone=True)),
 )
 
+v_call_center_queues = Table(
+    "v_call_center_queues",
+    _metadata,
+    Column("call_center_queue_uuid", Uuid(as_uuid=False), primary_key=True),
+    Column("domain_uuid", Uuid(as_uuid=False)),
+    Column("queue_name", String),
+    Column("queue_extension", String),
+    Column("queue_strategy", String),
+    Column("queue_moh_sound", String),
+    Column("insert_date", DateTime(timezone=True)),
+)
+
+v_call_center_agents = Table(
+    "v_call_center_agents",
+    _metadata,
+    Column("call_center_agent_uuid", Uuid(as_uuid=False), primary_key=True),
+    Column("domain_uuid", Uuid(as_uuid=False)),
+    Column("agent_id", String),
+    Column("agent_name", String),
+    Column("agent_type", String),
+    Column("agent_contact", String),
+    Column("agent_status", String),
+    Column("insert_date", DateTime(timezone=True)),
+)
+
+v_call_center_tiers = Table(
+    "v_call_center_tiers",
+    _metadata,
+    Column("call_center_tier_uuid", Uuid(as_uuid=False), primary_key=True),
+    Column("domain_uuid", Uuid(as_uuid=False)),
+    Column("call_center_queue_uuid", Uuid(as_uuid=False)),
+    Column("call_center_agent_uuid", Uuid(as_uuid=False)),
+    Column("queue_name", String),
+    Column("agent_name", String),
+    Column("tier_level", Integer),
+    Column("tier_position", Integer),
+    Column("insert_date", DateTime(timezone=True)),
+)
+
 # FusionPBX "Dialplan" app UUID (owns generic dialplan rows).
 DIALPLAN_APP_UUID = "b1cd7509-5576-469a-892d-d0cfb66a4197"
 
@@ -153,6 +192,7 @@ _CONFERENCE_TEMPLATE = (
 _UNAVAILABLE = (OperationalError, InterfaceError)
 
 ReloadCallable = Callable[[], None]
+CommandCallable = Callable[[str], None]
 
 
 def _default_reloader() -> None:
@@ -161,6 +201,14 @@ def _default_reloader() -> None:
         esl.reloadxml(settings.esl_host, settings.esl_port, settings.esl_password)
     except Exception as exc:  # noqa: BLE001 - reload is best-effort; DB is source of truth
         logger.warning("FusionPBX reloadxml failed (non-fatal): %s", exc)
+
+
+def _default_commander(cmd: str) -> None:
+    """Best-effort ESL ``api`` command (e.g. callcenter_config); never raises."""
+    try:
+        esl.command(settings.esl_host, settings.esl_port, settings.esl_password, cmd)
+    except Exception as exc:  # noqa: BLE001 - runtime activation is best-effort
+        logger.warning("FusionPBX ESL command failed (non-fatal): %s", exc)
 
 
 class FusionpbxClient:
@@ -172,6 +220,7 @@ class FusionpbxClient:
         *,
         engine: Engine | None = None,
         reloader: ReloadCallable | None = None,
+        commander: CommandCallable | None = None,
     ) -> None:
         """Initialize the FusionPBX client.
 
@@ -192,6 +241,7 @@ class FusionpbxClient:
             self._engine = create_engine(db_url)
             self._owns_engine = True
         self._reloader: ReloadCallable = reloader or _default_reloader
+        self._commander: CommandCallable = commander or _default_commander
 
     def close(self) -> None:
         """Dispose the engine if this client created it."""
@@ -651,6 +701,126 @@ class FusionpbxClient:
         if changed:
             self._reload()
         return {"changed": changed}
+
+    def ensure_queue(
+        self,
+        domain_name: str,
+        number: str,
+        *,
+        agents: list[str],
+        name: str | None = None,
+        strategy: str = "ring-all",
+    ) -> dict:
+        """Idempotently provision a call-center queue <number> with callback agents.
+
+        Writes v_call_center_queues/agents/tiers + the public callcenter dialplan,
+        then issues runtime callcenter_config over ESL (DB rows alone don't load
+        into mod_callcenter). ``queue_name`` MUST equal the number -- callcenter.conf
+        names the queue by ``queue_name``.
+
+        KNOWN CAVEAT: caller<->agent media is one-way through mod_callcenter's bridge
+        (rtpengine re-anchor); provisioning works, media is a tracked follow-up. See
+        deploy/core/freeswitch/README.md.
+        """
+        cmds: list[str] = []
+        changed = False
+        try:
+            with self._engine.begin() as conn:
+                domain_uuid, _ = self._ensure_domain(conn, domain_name)
+                qrow = conn.execute(
+                    select(v_call_center_queues.c.call_center_queue_uuid)
+                    .where(v_call_center_queues.c.domain_uuid == domain_uuid)
+                    .where(v_call_center_queues.c.queue_extension == number)
+                ).first()
+                if qrow is None:
+                    queue_uuid = str(uuid.uuid4())
+                    conn.execute(
+                        insert(v_call_center_queues).values(
+                            call_center_queue_uuid=queue_uuid,
+                            domain_uuid=domain_uuid,
+                            queue_name=number,
+                            queue_extension=number,
+                            queue_strategy=strategy,
+                            queue_moh_sound="$${hold_music}",
+                            insert_date=datetime.now(UTC),
+                        )
+                    )
+                    changed = True
+                    cmds.append(f"callcenter_config queue load {number}@{domain_name}")
+                else:
+                    queue_uuid = qrow.call_center_queue_uuid
+                for ext in agents:
+                    arow = conn.execute(
+                        select(v_call_center_agents.c.call_center_agent_uuid)
+                        .where(v_call_center_agents.c.domain_uuid == domain_uuid)
+                        .where(v_call_center_agents.c.agent_id == ext)
+                    ).first()
+                    if arow is not None:
+                        continue
+                    agent_uuid = str(uuid.uuid4())
+                    contact = f"user/{ext}@{domain_name}"
+                    conn.execute(
+                        insert(v_call_center_agents).values(
+                            call_center_agent_uuid=agent_uuid,
+                            domain_uuid=domain_uuid,
+                            agent_id=ext,
+                            agent_name=ext,
+                            agent_type="callback",
+                            agent_contact=contact,
+                            agent_status="Available (On Demand)",
+                            insert_date=datetime.now(UTC),
+                        )
+                    )
+                    conn.execute(
+                        insert(v_call_center_tiers).values(
+                            call_center_tier_uuid=str(uuid.uuid4()),
+                            domain_uuid=domain_uuid,
+                            call_center_queue_uuid=queue_uuid,
+                            call_center_agent_uuid=agent_uuid,
+                            queue_name=number,
+                            agent_name=ext,
+                            tier_level=1,
+                            tier_position=1,
+                        )
+                    )
+                    changed = True
+                    cmds += [
+                        f"callcenter_config agent add {agent_uuid} 'callback'",
+                        f"callcenter_config agent set contact {agent_uuid} '{contact}'",
+                        f"callcenter_config agent set status {agent_uuid} 'Available (On Demand)'",
+                        f"callcenter_config tier add {number}@{domain_name} {agent_uuid} 1 1",
+                    ]
+                dp_xml = (
+                    f'<extension name="kamailio-queue-{number}" continue="false">\n'
+                    '  <condition field="${network_addr}" expression="^10\\.10\\.10\\.1$"/>\n'
+                    f'  <condition field="destination_number" expression="^({number})$">\n'
+                    '    <action application="answer"/>\n'
+                    '    <action application="sleep" data="500"/>\n'
+                    f'    <action application="callcenter" data="{number}@{domain_name}"/>\n'
+                    '    <action application="hangup"/>\n'
+                    "  </condition>\n"
+                    "</extension>"
+                )
+                if self._ensure_dialplan(
+                    conn, name=f"kamailio-queue-{number}", number=number, order=53, xml=dp_xml
+                ):
+                    changed = True
+        except _UNAVAILABLE as exc:
+            raise ServiceUnavailableError(f"FusionPBX DB unreachable: {exc}") from exc
+        except IntegrityError as exc:
+            raise BadRequestError(f"FusionPBX queue insert failed: {exc}") from exc
+        if changed:
+            self._reload()
+        for cmd in cmds:
+            self._commander(cmd)
+        return {
+            "name": f"kamailio-queue-{number}",
+            "created": changed,
+            "media_caveat": (
+                "caller<->agent media one-way (mod_callcenter bridge re-anchor); "
+                "tracked follow-up"
+            ),
+        }
 
     def create_ivr(
         self,
