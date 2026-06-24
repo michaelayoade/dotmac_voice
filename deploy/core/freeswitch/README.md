@@ -65,3 +65,29 @@ debug the WebRTC offer toward WS-B + the 0-packet relay (systematic SDP-level, n
 
 **State: ROLLED BACK to known-good (ROUTE_VIA_FS OFF); direct WS<->WS two-way audio verified.**
 All FS-in-path routes are inert behind the flag.
+
+## FS-in-path: TWO-WAY AUDIO THROUGH FREESWITCH ✅ (2026-06-24)
+
+End-to-end WORKING: WS-A -> Kamailio -> FreeSWITCH (dialplan executes, bridges) -> Kamailio -> WS-B
+with verified two-way RTP (harness: caller rx ~138 / callee rx ~66 pk). FS log confirms
+`Channel sofia/external/1002@10.10.10.1:5060 has been answered, RINGING -> ACTIVE` (criterion 2).
+Acceptance criteria 1,2,3 met; 6,7 (regression+rollback) verified (direct path 140/140 with flag off).
+
+### The media-plane fixes (the hard part), all on EDGE Kamailio + rtpengine:
+- **rtpengine interfaces** must be ONE semicolon-separated line (key-file parser keeps only the last
+  `interface=` otherwise): `interface = pub/10.120.120.50!160.119.126.62;int/10.10.10.1`.
+- **Per-leg transcoding** via direction-selected interfaces:
+  - WS-caller<->FS (`RTP_OFFER_TO_FS`/`REPLY_FROM_FS`): `RTP/AVP ICE=remove direction=pub direction=int`
+    (strip WebRTC to plain RTP toward FS) / answer back `UDP/TLS/RTP/SAVPF ICE=force DTLS=active`.
+  - FS<->WS-callee (`RTP_OFFER_TO_WS`/`REPLY_FROM_WS`): `UDP/TLS/RTP/SAVPF ICE=force DTLS=active
+    rtcp-mux-offer direction=int direction=pub` / answer back `RTP/AVP ICE=remove`.
+- **`rtcp-mux-offer` was the final blocker:** FS's plain offer has no rtcp-mux, so the WebRTC offer
+  rtpengine built toward the browser lacked `a=rtcp-mux`; browsers default to `rtcpMuxPolicy:require`
+  and rejected it with `488 Not Acceptable Here` (surfaced as "WebRTC Error"). Forcing rtpengine to
+  offer rtcp-mux fixed it.
+- Use `rtpengine_manage` (not `rtpengine_offer/answer`) — note `$rb` shows the PRE-lump body, so log
+  dumps look un-rewritten; the wire (tcpdump) shows the real rewritten SDP.
+
+### State: flag OFF (safe). Flip `#!define ROUTE_VIA_FS` on for FS-in-path.
+### REMAINING for full acceptance: criterion 5 (voicemail smoke test), criterion 4 (clean teardown),
+### loop invariant (§11). Multi-domain: replace the single-domain `$rd` hardcode with a header.
