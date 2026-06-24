@@ -99,6 +99,21 @@ def fpbx_engine() -> Engine:
                 """
             )
         )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE v_default_settings (
+                    default_setting_uuid TEXT PRIMARY KEY,
+                    default_setting_category TEXT,
+                    default_setting_subcategory TEXT,
+                    default_setting_name TEXT,
+                    default_setting_value TEXT,
+                    default_setting_enabled BOOLEAN,
+                    insert_date TEXT
+                )
+                """
+            )
+        )
     return engine
 
 
@@ -418,3 +433,25 @@ class TestEnsureRouting:
                 {"n": "kamailio-internal-to-domain"},
             ).scalar_one()
         assert "execute_on_answer=record_session" in xml
+
+
+class TestEnsureSwitchSettings:
+    def test_sets_voicemail_dir(self, client, fpbx_engine):
+        result = client.ensure_switch_settings()
+        assert result["changed"] is True
+        with fpbx_engine.connect() as conn:
+            val = conn.execute(
+                text(
+                    "SELECT default_setting_value FROM v_default_settings "
+                    "WHERE default_setting_subcategory='voicemail' "
+                    "AND default_setting_name='dir'"
+                )
+            ).scalar_one()
+        assert val == "/var/lib/freeswitch/storage/voicemail"
+
+    def test_is_idempotent(self, client, reloader):
+        client.ensure_switch_settings()
+        reloader.reset_mock()
+        second = client.ensure_switch_settings()
+        assert second["changed"] is False
+        reloader.assert_not_called()

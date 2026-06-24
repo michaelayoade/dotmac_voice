@@ -106,8 +106,24 @@ v_dialplans = Table(
     Column("insert_date", DateTime(timezone=True)),
 )
 
+v_default_settings = Table(
+    "v_default_settings",
+    _metadata,
+    Column("default_setting_uuid", Uuid(as_uuid=False), primary_key=True),
+    Column("default_setting_category", String),
+    Column("default_setting_subcategory", String),
+    Column("default_setting_name", String),
+    Column("default_setting_value", String),
+    Column("default_setting_enabled", Boolean),
+    Column("insert_date", DateTime(timezone=True)),
+)
+
 # FusionPBX "Dialplan" app UUID (owns generic dialplan rows).
 DIALPLAN_APP_UUID = "b1cd7509-5576-469a-892d-d0cfb66a4197"
+
+# FusionPBX ships switch/voicemail/dir as "/voicemail" which breaks the voicemail
+# Lua's storage path; it must be the real FreeSWITCH storage dir.
+SWITCH_VOICEMAIL_DIR = "/var/lib/freeswitch/storage/voicemail"
 
 # The FusionPBX directory dial-string that routes user/<ext> bridges to Kamailio.
 # WS clients register on Kamailio (10.10.10.1), not FreeSWITCH, so the default
@@ -588,6 +604,53 @@ class FusionpbxClient:
         if changed:
             self._reload()
         return {"name": "kamailio-internal-to-domain", "created": changed}
+
+    def ensure_switch_settings(self) -> dict:
+        """Idempotently fix the switch/voicemail/dir default-setting so the FusionPBX
+        voicemail Lua writes recordings to the real storage path. Environment bootstrap."""
+        changed = False
+        try:
+            with self._engine.begin() as conn:
+                row = conn.execute(
+                    select(
+                        v_default_settings.c.default_setting_uuid,
+                        v_default_settings.c.default_setting_value,
+                    )
+                    .where(v_default_settings.c.default_setting_category == "switch")
+                    .where(v_default_settings.c.default_setting_subcategory == "voicemail")
+                    .where(v_default_settings.c.default_setting_name == "dir")
+                ).first()
+                if row is None:
+                    conn.execute(
+                        insert(v_default_settings).values(
+                            default_setting_uuid=str(uuid.uuid4()),
+                            default_setting_category="switch",
+                            default_setting_subcategory="voicemail",
+                            default_setting_name="dir",
+                            default_setting_value=SWITCH_VOICEMAIL_DIR,
+                            default_setting_enabled=True,
+                            insert_date=datetime.now(UTC),
+                        )
+                    )
+                    changed = True
+                elif row.default_setting_value != SWITCH_VOICEMAIL_DIR:
+                    conn.execute(
+                        update(v_default_settings)
+                        .where(
+                            v_default_settings.c.default_setting_uuid
+                            == row.default_setting_uuid
+                        )
+                        .values(
+                            default_setting_value=SWITCH_VOICEMAIL_DIR,
+                            default_setting_enabled=True,
+                        )
+                    )
+                    changed = True
+        except _UNAVAILABLE as exc:
+            raise ServiceUnavailableError(f"FusionPBX DB unreachable: {exc}") from exc
+        if changed:
+            self._reload()
+        return {"changed": changed}
 
     def create_ivr(
         self,
