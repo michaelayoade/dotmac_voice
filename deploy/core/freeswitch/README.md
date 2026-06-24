@@ -149,3 +149,23 @@ api-on hook), not a one-line change.
 - `${network_addr}`/`${sip_network_ip}` are EMPTY at dialplan parse-time (only set at action-execute);
   a `sofia profile rescan` can wedge parse-time vars — a full `systemctl restart freeswitch` restored
   `${network_addr}` matching. (Discriminator stays `${network_addr}`; providers ACL is the hard IP gate.)
+
+## (b) FusionPBX portal voicemail row — RESOLVED (2026-06-24, part 3)
+The portal listing row (`v_voicemail_messages`) now inserts. Two fixes:
+1. **Leave-message via the FusionPBX voicemail Lua** (replicating the canonical `send_to_voicemail`
+   dialplan), NOT the native `voicemail` app. The leave action is `voicemail_action=save` (an UNSET
+   action is NOT "leave" — that was the earlier failure). Public dialplan now does:
+   `answer -> sleep 1000 -> set voicemail_action=save -> set voicemail_id=${destination_number} ->
+   set voicemail_profile=default -> set send_to_voicemail=true -> set domain_name=${sip_req_host} ->
+   lua app.lua voicemail`.
+2. **Fixed the broken storage path:** `v_default_settings` `switch/voicemail/dir` was `/voicemail`
+   (the Lua appends `/default/<domain>` -> `Error Opening File`, size 0, no row). Set it to the real
+   path `/var/lib/freeswitch/storage/voicemail`. **This DB fix is install-specific (apply on prod).**
+
+Verified: greeting plays to WS-A, WS-A recorded, file stored at the correct path
+(`.../storage/voicemail/default/voicetest.dotmac/1002/msg_*.wav`, valid WAVE PCM 16k), AND a
+`v_voicemail_messages` row is created (portal will list it) + MWI set. (Test recording is ~1-2s
+because the synthetic fake-mic tone trips silence detection; a real caller records to hangup.)
+
+## ALL THREE FOLLOW-UPS DONE: (a) teardown ✅  (b) portal voicemail row ✅  (c) multi-domain ✅
+## State: ROUTE_VIA_FS OFF (safe); direct path 141/141. FS-in-path fully featured + one flag-flip away.
