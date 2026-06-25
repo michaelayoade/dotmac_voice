@@ -131,6 +131,10 @@ def fpbx_engine() -> Engine:
             )
         )
         conn.execute(text(
+            "CREATE TABLE v_modules (module_uuid TEXT PRIMARY KEY, "
+            "module_name TEXT, module_enabled BOOLEAN)"
+        ))
+        conn.execute(text(
             "CREATE TABLE v_call_center_queues (call_center_queue_uuid TEXT PRIMARY KEY, "
             "domain_uuid TEXT, queue_name TEXT, queue_extension TEXT, queue_strategy TEXT, "
             "queue_moh_sound TEXT, insert_date TEXT)"
@@ -707,3 +711,24 @@ class TestVoicemailMessages:
 
     def test_empty_when_no_box(self, client):
         assert client.list_voicemail_messages("a.local", "9999") == []
+
+
+class TestBootstrapReadiness:
+    def test_reports_required_modules(self, client, fpbx_engine):
+        with fpbx_engine.begin() as conn:
+            conn.execute(text(
+                "INSERT INTO v_modules (module_uuid, module_name, module_enabled) "
+                "VALUES ('m1','mod_voicemail',1), ('m2','mod_callcenter',0)"
+            ))
+        report = client.check_readiness()
+        assert report["modules"]["voicemail"] is True
+        assert report["modules"]["callcenter"] is False
+        assert report["ready"] is False
+
+    def test_ready_when_all_enabled(self, client, fpbx_engine):
+        with fpbx_engine.begin() as conn:
+            conn.execute(text(
+                "INSERT INTO v_modules (module_uuid, module_name, module_enabled) "
+                "VALUES ('m1','mod_voicemail',1), ('m2','mod_callcenter',1)"
+            ))
+        assert client.check_readiness()["ready"] is True

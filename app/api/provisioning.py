@@ -197,3 +197,12 @@ def get_voicemail_messages(
     if not domain:
         raise NotFoundError(f"No voice domain for customer {customer_id}")
     return client.list_voicemail_messages(domain.fusionpbx_domain, extension)
+
+
+@router.get("/bootstrap")
+def bootstrap_readiness(
+    client: FusionpbxClient = Depends(get_fusionpbx_client),
+) -> dict:
+    """Environment readiness: required FreeSWITCH modules (voicemail/callcenter)
+    enabled per FusionPBX v_modules. {"ready": bool, "modules": {name: bool}}."""
+    return client.check_readiness()

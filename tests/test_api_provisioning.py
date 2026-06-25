@@ -17,6 +17,7 @@ class _FakeClient:
     def delete_dialplan(self, name): return True
     def delete_queue(self, domain, number): return True
     def resync_queues(self, domain): return {"queues": 0, "agents": 0}
+    def check_readiness(self): return {"ready": True, "modules": {"voicemail": True, "callcenter": True}}
     def list_voicemail_messages(self, domain, extension):
         return [{"message_uuid": "m1", "created_epoch": 1, "caller_id_name": "X",
                  "caller_id_number": "234", "duration_seconds": 5, "status": ""}]
@@ -250,4 +251,13 @@ def test_put_provisioning_sets_recording_enabled(client, db_session):
     db_session.expire_all()
     dom = db_session.scalar(select(VoiceDomain).where(VoiceDomain.customer_id == "recput-c1"))
     assert dom.recording_enabled is True
+    client.app.dependency_overrides.pop(get_fusionpbx_client)
+
+
+def test_bootstrap_readiness(client):
+    from app.api.provisioning import get_fusionpbx_client
+
+    client.app.dependency_overrides[get_fusionpbx_client] = lambda: _FakeClient()
+    r = client.get("/provisioning/bootstrap", headers=INGRESS)
+    assert r.status_code == 200 and r.json()["ready"] is True
     client.app.dependency_overrides.pop(get_fusionpbx_client)

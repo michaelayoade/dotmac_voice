@@ -134,6 +134,14 @@ v_default_settings = Table(
     Column("insert_date", DateTime(timezone=True)),
 )
 
+v_modules = Table(
+    "v_modules",
+    _metadata,
+    Column("module_uuid", Uuid(as_uuid=False), primary_key=True),
+    Column("module_name", String),
+    Column("module_enabled", Boolean),
+)
+
 v_call_center_queues = Table(
     "v_call_center_queues",
     _metadata,
@@ -1255,6 +1263,23 @@ class FusionpbxClient:
             }
             for r in rows
         ]
+
+    def check_readiness(self) -> dict:
+        """Report whether the FreeSWITCH modules required by this control plane are
+        enabled, per FusionPBX ``v_modules`` (the same source where a missing
+        mod_voicemail showed up). Matches module_name by substring so it tolerates
+        the ``mod_`` prefix; verify naming against the live v_modules in production."""
+        required = ("voicemail", "callcenter")
+        try:
+            with self._engine.begin() as conn:
+                rows = conn.execute(
+                    select(v_modules.c.module_name, v_modules.c.module_enabled)
+                ).fetchall()
+        except _UNAVAILABLE as exc:
+            raise ServiceUnavailableError(f"FusionPBX DB unreachable: {exc}") from exc
+        enabled = [(r.module_name or "").lower() for r in rows if bool(r.module_enabled)]
+        modules = {req: any(req in name for name in enabled) for req in required}
+        return {"ready": all(modules.values()), "modules": modules}
 
     def create_ivr(
         self,
