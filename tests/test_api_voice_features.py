@@ -144,3 +144,40 @@ def test_feature_endpoint_unknown_domain_404(client):
     )
     assert r.status_code == 404
     client.app.dependency_overrides.pop(get_fusionpbx_client)
+
+
+def test_put_features_replaces_full_set(client, db_session):
+    from sqlalchemy import select
+
+    from app.api.provisioning import get_fusionpbx_client
+    from app.models.voice import ConferenceRoom, RingGroup, VoiceDomain
+
+    fake = _FakeClient()
+    _provision_domain(client, fake, "fs-c1", "fs-c1.local")
+    base = "/provisioning/domains/fs-c1/features"
+
+    r1 = client.put(
+        base,
+        json={
+            "conferences": [{"number": "3001"}],
+            "ring_groups": [{"number": "2000", "members": ["1002"]}],
+        },
+        headers=INGRESS,
+    )
+    assert r1.status_code == 200
+    dom = db_session.scalar(select(VoiceDomain).where(VoiceDomain.customer_id == "fs-c1"))
+    confs = {c.number for c in db_session.scalars(
+        select(ConferenceRoom).where(ConferenceRoom.voice_domain_id == dom.id))}
+    assert confs == {"3001"}
+
+    # Replace with a different set: 3001 removed, 3002 added, ring group removed.
+    r2 = client.put(base, json={"conferences": [{"number": "3002"}]}, headers=INGRESS)
+    assert r2.status_code == 200
+    db_session.expire_all()
+    confs = {c.number for c in db_session.scalars(
+        select(ConferenceRoom).where(ConferenceRoom.voice_domain_id == dom.id))}
+    assert confs == {"3002"}
+    rgs = list(db_session.scalars(
+        select(RingGroup).where(RingGroup.voice_domain_id == dom.id)))
+    assert rgs == []
+    client.app.dependency_overrides.pop(get_fusionpbx_client)

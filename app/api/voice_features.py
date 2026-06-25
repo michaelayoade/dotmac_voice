@@ -216,3 +216,52 @@ def post_queue(customer_id, payload: QueueIntent, db=Depends(get_db), client=Dep
 def delete_queue(customer_id, number: str, db=Depends(get_db), client=Depends(get_fusionpbx_client)):
     _delete(db, _domain(db, customer_id), Queue, number)
     return _sync(db, client, customer_id)
+
+
+class FeatureSet(BaseModel):
+    """Full desired feature state for a domain — declarative replace (dotmac_sub sync)."""
+
+    conferences: list[ConferenceIntent] = []
+    ring_groups: list[RingGroupIntent] = []
+    ivrs: list[IvrIntent] = []
+    queues: list[QueueIntent] = []
+
+
+def _replace(db: Session, dom: VoiceDomain, model_cls, intents, fields_fn) -> None:
+    """Make the domain's feature rows of one type exactly match ``intents``:
+    delete those no longer desired, then upsert the rest."""
+    desired = {i.number for i in intents}
+    for obj in list(
+        db.scalars(select(model_cls).where(model_cls.voice_domain_id == dom.id))
+    ):
+        if obj.number not in desired:
+            db.delete(obj)
+    db.flush()
+    for intent in intents:
+        _upsert(db, dom, model_cls, intent.number, **fields_fn(intent))
+
+
+@router.put("", response_model=DomainSyncResult)
+def put_features(
+    customer_id: str,
+    payload: FeatureSet,
+    db: Session = Depends(get_db),
+    client: FusionpbxClient = Depends(get_fusionpbx_client),
+) -> DomainSyncResult:
+    """Replace the domain's entire feature set in one call, then reconcile (applies +
+    drift-deletes from FusionPBX). A single desired-state payload, safe for sync."""
+    dom = _domain(db, customer_id)
+    _replace(db, dom, ConferenceRoom, payload.conferences, lambda i: {})
+    _replace(
+        db, dom, RingGroup, payload.ring_groups,
+        lambda i: {"members": i.members, "strategy": i.strategy, "timeout": i.timeout},
+    )
+    _replace(
+        db, dom, IvrMenu, payload.ivrs,
+        lambda i: {"options": i.options, "greeting": i.greeting},
+    )
+    _replace(
+        db, dom, Queue, payload.queues,
+        lambda i: {"agents": i.agents, "name": i.name, "strategy": i.strategy},
+    )
+    return _sync(db, client, customer_id)
