@@ -129,3 +129,58 @@ def test_get_cdrs_by_customer(client, db_session):
     # unknown customer -> empty list
     r2 = client.get("/cdr?customer_id=nobody-here", headers=INGRESS)
     assert r2.status_code == 200 and r2.json() == []
+
+
+def test_ingest_is_idempotent_by_call_uuid(client, db_session):
+    from sqlalchemy import func, select
+
+    from app.models.voice import Cdr
+
+    uid = "idem-" + uuid.uuid4().hex
+    p = _sample_payload(uid)
+    client.post("/cdr/ingest", json=p, headers=INGRESS)
+    p["variables"]["billsec"] = "99"  # same call, corrected/retried payload
+    client.post("/cdr/ingest", json=p, headers=INGRESS)
+
+    n = db_session.scalar(
+        select(func.count()).select_from(Cdr).where(Cdr.call_uuid == uid)
+    )
+    assert n == 1  # upsert, not duplicate
+    cdr = db_session.scalar(select(Cdr).where(Cdr.call_uuid == uid))
+    assert cdr.billsec == 99
+
+
+def test_ingest_populates_recording_url(client, db_session):
+    from sqlalchemy import select
+
+    from app.models.voice import Cdr
+
+    uid = "rec-" + uuid.uuid4().hex
+    p = _sample_payload(uid)
+    p["variables"]["variable_recording_file"] = (
+        f"/var/lib/freeswitch/recordings/x/2026-06-25/{uid}.wav"
+    )
+    client.post("/cdr/ingest", json=p, headers=INGRESS)
+    cdr = db_session.scalar(select(Cdr).where(Cdr.call_uuid == uid))
+    assert cdr.recording_url and cdr.recording_url.endswith(f"{uid}.wav")
+
+
+def test_mark_cdrs_transitions_rating(client, db_session):
+    from sqlalchemy import select
+
+    from app.models.voice import Cdr, CdrRatingStatus
+
+    uid = "mark-" + uuid.uuid4().hex
+    client.post("/cdr/ingest", json=_sample_payload(uid), headers=INGRESS)
+    r = client.post(
+        "/cdr/mark", json={"call_uuids": [uid], "rating_status": "rated"}, headers=INGRESS
+    )
+    assert r.status_code == 200 and r.json()["marked"] == 1
+    db_session.expire_all()
+    cdr = db_session.scalar(select(Cdr).where(Cdr.call_uuid == uid))
+    assert cdr.rating_status == CdrRatingStatus.rated
+
+    r2 = client.post(
+        "/cdr/mark", json={"call_uuids": [uid], "rating_status": "bogus"}, headers=INGRESS
+    )
+    assert r2.status_code == 400

@@ -725,11 +725,17 @@ class FusionpbxClient:
         _require_domain(domain_name)
         rec = ""
         if recording:
+            rec_path = (
+                "/var/lib/freeswitch/recordings/${sip_req_host}/"
+                "${strftime(%Y-%m-%d)}/${uuid}.wav"
+            )
             rec = (
                 '    <action application="set" data="RECORD_STEREO=true"/>\n'
-                '    <action application="set" data="execute_on_answer=record_session '
-                "/var/lib/freeswitch/recordings/${sip_req_host}/"
-                '${strftime(%Y-%m-%d)}/${uuid}.wav"/>\n'
+                # Expose the path as a channel variable so mod_json_cdr emits it
+                # (variable_recording_file) and CDR ingest can store recording_url.
+                f'    <action application="set" data="recording_file={rec_path}"/>\n'
+                f'    <action application="set" data="execute_on_answer=record_session '
+                f'{rec_path}"/>\n'
             )
         xml = (
             '<extension name="kamailio-internal-to-domain" continue="false">\n'

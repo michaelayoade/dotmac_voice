@@ -2,6 +2,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -9,6 +10,7 @@ from app.api.deps import get_db
 from app.models.voice import Cdr, CdrRatingStatus
 from app.schemas.voice import CdrIngestResult, CdrRead
 from app.services.cdr.ingest import ingest_cdr
+from app.services.exceptions import BadRequestError
 from app.services.ingress_auth import require_ingress
 
 logger = logging.getLogger(__name__)
@@ -77,3 +79,28 @@ def get_cdrs(
         )
         for row in rows
     ]
+
+
+class CdrMarkRequest(BaseModel):
+    call_uuids: list[str]
+    rating_status: str
+
+
+@router.post("/mark")
+def mark_cdrs(
+    payload: CdrMarkRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Transition rating state (raw -> rated -> fed) for a batch of CDRs by call_uuid.
+    The billing pipeline rates raw CDRs then marks them fed once exported."""
+    try:
+        status = CdrRatingStatus(payload.rating_status)
+    except ValueError as exc:
+        raise BadRequestError(
+            f"invalid rating_status: {payload.rating_status}"
+        ) from exc
+    rows = list(db.scalars(select(Cdr).where(Cdr.call_uuid.in_(payload.call_uuids))))
+    for cdr in rows:
+        cdr.rating_status = status
+    db.commit()
+    return {"marked": len(rows), "rating_status": status.value}
