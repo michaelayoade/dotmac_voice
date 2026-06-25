@@ -81,3 +81,26 @@ def attempt_delivery(
 
     db.flush()
     return delivered
+
+
+def sweep_deliveries(db: Session, *, max_attempts: int = 5, limit: int = 100) -> int:
+    """Re-attempt webhook deliveries stuck in ``pending`` (attempts < max_attempts).
+
+    This is the durable backstop to enqueue-time Celery retry: if a worker dies
+    mid retry-chain, the delivery is left pending and would otherwise never be
+    retried. A scheduled sweep (ScheduledTask -> app.tasks.webhook_deliver.sweep)
+    picks them up. Returns the number re-attempted (oldest first).
+    """
+    rows = list(
+        db.scalars(
+            select(WebhookDelivery)
+            .where(WebhookDelivery.status == DeliveryStatus.pending)
+            .where(WebhookDelivery.attempts < max_attempts)
+            .order_by(WebhookDelivery.updated_at)
+            .limit(limit)
+        ).all()
+    )
+    for delivery in rows:
+        attempt_delivery(db, delivery, max_attempts=max_attempts)
+    db.flush()
+    return len(rows)

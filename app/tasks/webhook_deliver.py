@@ -41,3 +41,22 @@ def deliver(self, delivery_id: str) -> None:  # type: ignore[override]
         raise
     finally:
         db.close()
+
+
+@celery_app.task(name="app.tasks.webhook_deliver.sweep")
+def sweep() -> int:
+    """Scheduled durable retry: re-attempt webhook deliveries stuck in pending.
+
+    Enable by creating a ScheduledTask(task_name="app.tasks.webhook_deliver.sweep",
+    interval_seconds=120). Returns the number of deliveries re-attempted.
+    """
+    from app.db import SessionLocal
+    from app.services.webhooks.delivery import sweep_deliveries
+
+    db = SessionLocal()
+    try:
+        count = sweep_deliveries(db)
+        db.commit()
+        return count
+    finally:
+        db.close()
