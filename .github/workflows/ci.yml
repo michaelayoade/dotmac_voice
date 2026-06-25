@@ -152,7 +152,7 @@ jobs:
         run: poetry run pip-audit
 
       - name: Filesystem vulnerability scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.35.0
         with:
           scan-type: fs
           scan-ref: .
@@ -204,7 +204,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Scan Docker image
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: starter-template:ci
           severity: CRITICAL,HIGH
