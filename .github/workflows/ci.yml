@@ -273,6 +273,12 @@ jobs:
             sleep 2
           done
 
+      - name: Run migrations
+        run: |
+          docker run --rm --network ci-net \
+            -e DATABASE_URL=postgresql+psycopg://postgres:postgres@ci-db:5432/starter_ci \
+            starter-template:ci alembic upgrade head
+
       - name: Start application  # pragma: allowlist secret
         run: |
           docker run -d --name ci-app --network ci-net \
