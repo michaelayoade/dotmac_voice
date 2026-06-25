@@ -120,7 +120,9 @@ def reconcile_voice(db: Session, client, customer_id: str) -> SyncStatus:
             # routing is shared, so suspension enforces via extension removal above,
             # not by tearing down routing.)
             client.ensure_switch_settings()
-            client.ensure_routing(domain.fusionpbx_domain)
+            client.ensure_routing(
+                domain.fusionpbx_domain, recording=domain.recording_enabled
+            )
 
             # Reconcile features: apply desired models, then delete undefined (drift).
             dom_name = domain.fusionpbx_domain

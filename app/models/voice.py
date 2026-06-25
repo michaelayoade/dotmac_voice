@@ -33,6 +33,10 @@ class VoiceDomain(Base):
     # Service state: suspended (False) -> reconcile removes the customer's FusionPBX
     # extensions (can't register/call) while preserving the dotmac_voice models.
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # When True, reconcile provisions call recording on the internal routing.
+    recording_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
     last_reconciled_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )

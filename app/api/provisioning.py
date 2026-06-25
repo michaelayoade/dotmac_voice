@@ -57,6 +57,7 @@ def put_domain(
         db.flush()
     elif domain.fusionpbx_domain != payload.fusionpbx_domain:
         raise ConflictError("fusionpbx_domain is immutable for an existing customer")
+    domain.recording_enabled = payload.recording_enabled
     existing = {
         e.number: e
         for e in db.scalars(

@@ -233,3 +233,21 @@ def test_put_provisioning_replaces_extension_set(client, db_session):
     assert ext_by_number["1003"].display_name == "Charlie"
 
     client.app.dependency_overrides.pop(get_fusionpbx_client)
+
+
+def test_put_provisioning_sets_recording_enabled(client, db_session):
+    from sqlalchemy import select
+
+    from app.api.provisioning import get_fusionpbx_client
+    from app.models.voice import VoiceDomain
+
+    client.app.dependency_overrides[get_fusionpbx_client] = lambda: _FakeClient()
+    client.put(
+        "/provisioning/domains/recput-c1",
+        json={"fusionpbx_domain": "recput-c1.local", "extensions": [], "recording_enabled": True},
+        headers=INGRESS,
+    )
+    db_session.expire_all()
+    dom = db_session.scalar(select(VoiceDomain).where(VoiceDomain.customer_id == "recput-c1"))
+    assert dom.recording_enabled is True
+    client.app.dependency_overrides.pop(get_fusionpbx_client)

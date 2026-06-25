@@ -28,6 +28,7 @@ class DomainIntent(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     fusionpbx_domain: str = Field(min_length=1, max_length=255)
     extensions: list[ExtensionIntent] = []
+    recording_enabled: bool = False
 
     @field_validator("fusionpbx_domain")
     @classmethod

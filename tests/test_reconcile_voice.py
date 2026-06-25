@@ -417,3 +417,32 @@ def test_reconcile_ensures_internal_routing(db_session):
     reconcile_voice(db_session, client, "rt-c1")
 
     assert "rt-c1.local" in client.routed
+
+
+def test_reconcile_passes_recording_flag(db_session):
+    """recording_enabled on the domain is passed through to ensure_routing."""
+    dom = VoiceDomain(
+        customer_id="recflag-c1",
+        fusionpbx_domain="recflag-c1.local",
+        recording_enabled=True,
+    )
+    db_session.add(dom)
+    db_session.flush()
+    db_session.add(Extension(voice_domain_id=dom.id, number="1001"))
+    db_session.flush()
+
+    class _Fake(_FakeClient):
+        def __init__(self):
+            super().__init__()
+            self.recording_arg = None
+
+        def list_extensions(self, domain):
+            return [{"number": "1001"}]
+
+        def ensure_routing(self, domain, *, recording=False):
+            self.recording_arg = recording
+            return {"name": "kamailio-internal-to-domain", "created": True}
+
+    client = _Fake()
+    reconcile_voice(db_session, client, "recflag-c1")
+    assert client.recording_arg is True
