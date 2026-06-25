@@ -5,8 +5,11 @@ Model-based desired state: each write upserts/deletes the feature model, then
 anything undefined. ``require_ingress`` auth (consumed by sub / crm / self-care).
 """
 
+import re
+from typing import Literal
+
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -24,6 +27,15 @@ from app.services.exceptions import NotFoundError
 from app.services.fusionpbx.client import FusionpbxClient
 from app.services.ingress_auth import require_ingress
 from app.services.reconcile.voice import reconcile_voice
+
+_DIAL_TOKEN_RE = re.compile(r"^[A-Za-z0-9_*#+-]{1,64}$")
+
+
+def _validate_dial_token(value: str, field: str) -> str:
+    if not _DIAL_TOKEN_RE.fullmatch(value):
+        raise ValueError(f"{field} must be a dialable token")
+    return value
+
 
 router = APIRouter(
     prefix="/provisioning/domains/{customer_id}/features",
@@ -73,12 +85,31 @@ def _delete(db: Session, dom: VoiceDomain, model_cls, number: str) -> None:
 class ConferenceIntent(BaseModel):
     number: str = Field(min_length=1, max_length=32)
 
+    @field_validator("number")
+    @classmethod
+    def validate_number(cls, value: str) -> str:
+        return _validate_dial_token(value, "number")
+
 
 class RingGroupIntent(BaseModel):
     number: str = Field(min_length=1, max_length=32)
     members: list[str] = Field(min_length=1)
-    strategy: str = "simultaneous"
-    timeout: int = 30
+    strategy: Literal["simultaneous", "sequence"] = "simultaneous"
+    timeout: int = Field(default=30, ge=1, le=120)
+
+    @field_validator("number")
+    @classmethod
+    def validate_number(cls, value: str) -> str:
+        return _validate_dial_token(value, "number")
+
+    @field_validator("members")
+    @classmethod
+    def validate_members(cls, value: list[str]) -> list[str]:
+        for member in value:
+            _validate_dial_token(member, "member")
+        if len(value) != len(set(value)):
+            raise ValueError("members must not contain duplicates")
+        return value
 
 
 class IvrIntent(BaseModel):
@@ -86,12 +117,48 @@ class IvrIntent(BaseModel):
     options: dict[str, str] = Field(min_length=1)
     greeting: str = "ivr/ivr-enter_ext_pound.wav"
 
+    @field_validator("number")
+    @classmethod
+    def validate_number(cls, value: str) -> str:
+        return _validate_dial_token(value, "number")
+
+    @model_validator(mode="after")
+    def validate_options(self) -> "IvrIntent":
+        for digit, target in self.options.items():
+            if not re.fullmatch(r"[0-9]", digit):
+                raise ValueError("IVR option keys must be single digits")
+            _validate_dial_token(target, "IVR target")
+        return self
+
 
 class QueueIntent(BaseModel):
     number: str = Field(min_length=1, max_length=32)
     agents: list[str] = Field(min_length=1)
     name: str = ""
-    strategy: str = "ring-all"
+    strategy: Literal[
+        "ring-all",
+        "longest-idle-agent",
+        "round-robin",
+        "top-down",
+        "agent-with-least-talk-time",
+        "agent-with-fewest-calls",
+        "sequentially-by-agent-order",
+        "random",
+    ] = "ring-all"
+
+    @field_validator("number")
+    @classmethod
+    def validate_number(cls, value: str) -> str:
+        return _validate_dial_token(value, "number")
+
+    @field_validator("agents")
+    @classmethod
+    def validate_agents(cls, value: list[str]) -> list[str]:
+        for agent in value:
+            _validate_dial_token(agent, "agent")
+        if len(value) != len(set(value)):
+            raise ValueError("agents must not contain duplicates")
+        return value
 
 
 @router.post("/conferences", response_model=DomainSyncResult)

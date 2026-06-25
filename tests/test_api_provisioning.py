@@ -6,6 +6,7 @@ class _FakeClient:
     def list_extensions(self, domain): return []
     def create_extension(self, domain, number, password, display_name=""): pass
     def delete_extension(self, domain, number): return True
+    def delete_voicemail(self, domain, number): return True
     def ensure_voicemail(self, domain, number, *, enabled=True, password=""):
         return {"voicemail_id": number, "created": True}
     def ensure_switch_settings(self): return {"changed": False}
@@ -13,6 +14,8 @@ class _FakeClient:
         return {"name": "kamailio-internal-to-domain", "created": True}
     def list_managed_dialplans(self, domain): return set()
     def list_queues(self, domain): return set()
+    def delete_dialplan(self, name): return True
+    def delete_queue(self, domain, number): return True
     def resync_queues(self, domain): return {"queues": 0, "agents": 0}
     def list_voicemail_messages(self, domain, extension):
         return [{"message_uuid": "m1", "created_epoch": 1, "caller_id_name": "X",
@@ -32,6 +35,38 @@ def test_put_provisioning_creates_and_syncs(client):
 def test_put_provisioning_requires_key(client):
     r = client.put("/provisioning/domains/prov-c2", json={"fusionpbx_domain": "prov-c2.local", "extensions": []})
     assert r.status_code == 401
+
+
+def test_put_provisioning_rejects_domain_change(client):
+    from app.api.provisioning import get_fusionpbx_client
+
+    client.app.dependency_overrides[get_fusionpbx_client] = lambda: _FakeClient()
+    r1 = client.put(
+        "/provisioning/domains/immut-c1",
+        json={"fusionpbx_domain": "immut-c1.local", "extensions": []},
+        headers=INGRESS,
+    )
+    assert r1.status_code == 200
+
+    r2 = client.put(
+        "/provisioning/domains/immut-c1",
+        json={"fusionpbx_domain": "renamed-c1.local", "extensions": []},
+        headers=INGRESS,
+    )
+    assert r2.status_code == 409
+    client.app.dependency_overrides.pop(get_fusionpbx_client)
+
+
+def test_put_provisioning_rejects_duplicate_extensions(client):
+    r = client.put(
+        "/provisioning/domains/dup-c1",
+        json={
+            "fusionpbx_domain": "dup-c1.local",
+            "extensions": [{"number": "1001"}, {"number": "1001"}],
+        },
+        headers=INGRESS,
+    )
+    assert r.status_code == 422
 
 
 def test_suspend_and_resume(client, db_session):
@@ -149,9 +184,10 @@ def test_deprovision_removes_domain_and_extensions(client, db_session):
 
 def test_put_provisioning_replaces_extension_set(client, db_session):
     """Test that PUT replaces the desired extension set entirely (add, remove, update)."""
+    from sqlalchemy import select
+
     from app.api.provisioning import get_fusionpbx_client
     from app.models.voice import Extension, VoiceDomain
-    from sqlalchemy import select
 
     client.app.dependency_overrides[get_fusionpbx_client] = lambda: _FakeClient()
 

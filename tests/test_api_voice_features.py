@@ -17,6 +17,9 @@ class _FakeClient:
     def delete_extension(self, domain, number):
         return True
 
+    def delete_voicemail(self, domain, number):
+        return True
+
     def ensure_voicemail(self, domain, number, *, enabled=True, password=""):
         return {"voicemail_id": number, "created": True}
 
@@ -31,6 +34,12 @@ class _FakeClient:
 
     def list_queues(self, domain):
         return set()
+
+    def delete_dialplan(self, name):
+        return True
+
+    def delete_queue(self, domain, number):
+        return True
 
     # feature primitives
     def create_conference(self, domain, number):
@@ -113,6 +122,15 @@ def test_feature_delete_removes_model(client, db_session):
 def test_feature_endpoint_requires_ingress(client):
     r = client.post("/provisioning/domains/x/features/conferences", json={"number": "3001"})
     assert r.status_code == 401
+
+
+def test_feature_endpoint_rejects_bad_ivr_option(client):
+    r = client.post(
+        "/provisioning/domains/x/features/ivrs",
+        json={"number": "4000", "options": {"12": "1002"}},
+        headers=INGRESS,
+    )
+    assert r.status_code == 422
 
 
 def test_feature_endpoint_unknown_domain_404(client):

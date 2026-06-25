@@ -16,7 +16,7 @@ from app.models.voice import (
     VoiceDomain,
 )
 from app.schemas.voice import DomainIntent, DomainSyncResult
-from app.services.exceptions import NotFoundError
+from app.services.exceptions import ConflictError, NotFoundError
 from app.services.fusionpbx.client import FusionpbxClient
 from app.services.ingress_auth import require_ingress
 from app.services.reconcile.voice import reconcile_voice
@@ -55,6 +55,8 @@ def put_domain(
         )
         db.add(domain)
         db.flush()
+    elif domain.fusionpbx_domain != payload.fusionpbx_domain:
+        raise ConflictError("fusionpbx_domain is immutable for an existing customer")
     existing = {
         e.number: e
         for e in db.scalars(

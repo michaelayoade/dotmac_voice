@@ -215,6 +215,24 @@ def auth_env():
 # ============ FastAPI Test Client Fixtures ============
 
 
+@pytest.fixture(autouse=True)
+def _permissive_rate_limiter(request):
+    """The module-level app's RateLimitMiddleware fails closed (503) on auth paths
+    when Redis is unavailable; the test env has no Redis. Give the limiter a
+    permissive fake so integration tests can reach auth endpoints. test_rate_limit.py
+    exercises the limiter directly (its own app + _get_redis patches) and is skipped.
+    """
+    if "test_rate_limit" in request.node.nodeid:
+        yield
+        return
+    from app.middleware.rate_limit import RateLimitMiddleware
+
+    fake = MagicMock()
+    fake.eval.return_value = [1, 1]  # (allowed, current_count) -> request allowed
+    with patch.object(RateLimitMiddleware, "_ensure_redis", lambda self: fake):
+        yield
+
+
 @pytest.fixture()
 def client(db_session):
     """Create a test client with database dependency override."""

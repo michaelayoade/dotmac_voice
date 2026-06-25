@@ -17,6 +17,7 @@ import secrets
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
+from html import escape
 
 from sqlalchemy import (
     Boolean,
@@ -30,6 +31,7 @@ from sqlalchemy import (
     Uuid,
     create_engine,
     delete,
+    func,
     insert,
     select,
     update,
@@ -188,22 +190,50 @@ DIAL_STRING_UNLOCK = (
     "sofia/external/${dialed_user}@10.10.10.1:5060"
 )
 
+
+_DOMAIN_RE = re.compile(
+    r"^(?=.{1,255}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$"
+)
+_DIAL_TOKEN_RE = re.compile(r"^[A-Za-z0-9_*#+-]{1,64}$")
+_IVR_DIGIT_RE = re.compile(r"^[0-9]$")
+
+
+def _require_domain(domain_name: str) -> None:
+    if not _DOMAIN_RE.fullmatch(domain_name):
+        raise BadRequestError("Invalid FusionPBX domain")
+
+
+def _require_dial_token(value: str, field: str = "number") -> None:
+    if not _DIAL_TOKEN_RE.fullmatch(value):
+        raise BadRequestError(f"Invalid {field}")
+
+
+def _xml(value: str) -> str:
+    return escape(value, quote=True)
+
+
 def feature_dialplan_name(kind: str, domain_name: str, number: str) -> str:
     """Per-(domain, number) feature dialplan name for multi-tenant isolation.
 
     Two customers can both use feature number 3001 without colliding because each
     gets its own dialplan row + a ${sip_req_host} domain condition (see _domain_match).
     """
+    _require_domain(domain_name)
+    _require_dial_token(number)
     return f"kamailio-{kind}-{domain_name}-{number}"
 
 
 def _domain_match(domain_name: str) -> str:
     """Regex anchoring a feature dialplan to one domain's calls (${sip_req_host})."""
+    _require_domain(domain_name)
     return "^" + re.escape(domain_name) + "$"
 
 
 def _conf_room(domain_name: str, number: str) -> str:
     """Domain-scoped conference room so rooms don't merge across customers."""
+    _require_domain(domain_name)
+    _require_dial_token(number)
     return f"{domain_name.replace('.', '_')}-{number}"
 
 # Errors that mean the FusionPBX database is unreachable / a transport fault.
@@ -351,6 +381,7 @@ class FusionpbxClient:
             ServiceUnavailableError: If the FusionPBX DB is unreachable.
             BadRequestError: On an integrity violation.
         """
+        _require_domain(name)
         try:
             with self._engine.begin() as conn:
                 domain_uuid, created = self._ensure_domain(conn, name)
@@ -375,6 +406,7 @@ class FusionpbxClient:
         Raises:
             ServiceUnavailableError: If the FusionPBX DB is unreachable.
         """
+        _require_domain(domain_name)
         try:
             with self._engine.connect() as conn:
                 domain_uuid = self._domain_uuid_for(conn, domain_name)
@@ -420,8 +452,11 @@ class FusionpbxClient:
             ServiceUnavailableError: If the FusionPBX DB is unreachable.
             BadRequestError: On an integrity violation.
         """
+        _require_domain(domain_name)
+        _require_dial_token(number)
         secret = password or secrets.token_urlsafe(16)
         wrote = False
+        result: dict | None = None
         try:
             with self._engine.begin() as conn:
                 domain_uuid, _ = self._ensure_domain(conn, domain_name)
@@ -430,49 +465,72 @@ class FusionpbxClient:
                     select(
                         v_extensions.c.extension_uuid,
                         v_extensions.c.password,
+                        v_extensions.c.effective_caller_id_name,
+                        v_extensions.c.outbound_caller_id_name,
+                        v_extensions.c.directory_first_name,
                     )
                     .where(v_extensions.c.domain_uuid == domain_uuid)
                     .where(v_extensions.c.extension == number)
                 ).first()
                 if existing is not None:
-                    return {
+                    if (
+                        existing.effective_caller_id_name != display_name
+                        or existing.outbound_caller_id_name != display_name
+                        or existing.directory_first_name != display_name
+                    ):
+                        conn.execute(
+                            update(v_extensions)
+                            .where(
+                                v_extensions.c.extension_uuid
+                                == existing.extension_uuid
+                            )
+                            .values(
+                                effective_caller_id_name=display_name,
+                                outbound_caller_id_name=display_name,
+                                directory_first_name=display_name,
+                            )
+                        )
+                        wrote = True
+                    result = {
                         "number": number,
                         "extension_uuid": existing.extension_uuid,
                         "password": existing.password,
                     }
-
-                extension_uuid = str(uuid.uuid4())
-                conn.execute(
-                    insert(v_extensions).values(
-                        extension_uuid=extension_uuid,
-                        domain_uuid=domain_uuid,
-                        extension=number,
-                        password=secret,
-                        accountcode=domain_name,
-                        user_context=domain_name,
-                        effective_caller_id_name=display_name,
-                        effective_caller_id_number=number,
-                        outbound_caller_id_name=display_name,
-                        outbound_caller_id_number=number,
-                        call_timeout=30,
-                        enabled=True,
-                        directory_first_name=display_name,
-                        dial_string=DIAL_STRING_UNLOCK,
-                        insert_date=datetime.now(UTC),
+                else:
+                    extension_uuid = str(uuid.uuid4())
+                    conn.execute(
+                        insert(v_extensions).values(
+                            extension_uuid=extension_uuid,
+                            domain_uuid=domain_uuid,
+                            extension=number,
+                            password=secret,
+                            accountcode=domain_name,
+                            user_context=domain_name,
+                            effective_caller_id_name=display_name,
+                            effective_caller_id_number=number,
+                            outbound_caller_id_name=display_name,
+                            outbound_caller_id_number=number,
+                            call_timeout=30,
+                            enabled=True,
+                            directory_first_name=display_name,
+                            dial_string=DIAL_STRING_UNLOCK,
+                            insert_date=datetime.now(UTC),
+                        )
                     )
-                )
-                wrote = True
+                    wrote = True
+                    result = {
+                        "number": number,
+                        "extension_uuid": extension_uuid,
+                        "password": secret,
+                    }
         except _UNAVAILABLE as exc:
             raise ServiceUnavailableError(f"FusionPBX DB unreachable: {exc}") from exc
         except IntegrityError as exc:
             raise BadRequestError(f"FusionPBX extension insert failed: {exc}") from exc
         if wrote:
             self._reload()
-        return {
-            "number": number,
-            "extension_uuid": extension_uuid,
-            "password": secret,
-        }
+        assert result is not None
+        return result
 
     def ensure_voicemail(
         self,
@@ -488,6 +546,8 @@ class FusionpbxClient:
         ``ensure_switch_settings``) for recordings to land on disk; this only
         creates the box. Mirrors deploy/core/freeswitch/dialstring-unlock-and-1003.sql.
         """
+        _require_domain(domain_name)
+        _require_dial_token(number)
         pwd = password or number
         wrote = False
         try:
@@ -569,16 +629,18 @@ class FusionpbxClient:
     def create_conference(self, domain_name: str, number: str) -> dict:
         """Idempotently provision an FS-hosted conference room <number>, isolated to
         this domain (room name + ${sip_req_host} condition) so customers don't merge."""
+        _require_domain(domain_name)
+        _require_dial_token(number)
         name = feature_dialplan_name("conference", domain_name, number)
         room = _conf_room(domain_name, number)
         xml = (
-            f'<extension name="{name}" continue="false">\n'
+            f'<extension name="{_xml(name)}" continue="false">\n'
             '  <condition field="${network_addr}" expression="^10\\.10\\.10\\.1$"/>\n'
             f'  <condition field="${{sip_req_host}}" expression="{_domain_match(domain_name)}"/>\n'
-            f'  <condition field="destination_number" expression="^({number})$">\n'
+            f'  <condition field="destination_number" expression="^({re.escape(number)})$">\n'
             '    <action application="answer"/>\n'
             '    <action application="sleep" data="500"/>\n'
-            f'    <action application="conference" data="{room}@default"/>\n'
+            f'    <action application="conference" data="{_xml(room)}@default"/>\n'
             "  </condition>\n"
             "</extension>"
         )
@@ -612,19 +674,25 @@ class FusionpbxClient:
         Members bridge via ``user/<ext>@${domain_name}``, which the dial-string
         unlock routes to Kamailio -> the WS clients. ``simultaneous`` = comma-join.
         """
+        _require_domain(domain_name)
+        _require_dial_token(number)
+        if not members:
+            raise BadRequestError("Ring group requires at least one member")
+        for member in members:
+            _require_dial_token(member, "member")
         sep = "," if strategy == "simultaneous" else "|"
         bridge_data = sep.join(f"user/{m}@{domain_name}" for m in members)
         name = feature_dialplan_name("ringgroup", domain_name, number)
         xml = (
-            f'<extension name="{name}" continue="false">\n'
+            f'<extension name="{_xml(name)}" continue="false">\n'
             '  <condition field="${network_addr}" expression="^10\\.10\\.10\\.1$"/>\n'
             f'  <condition field="${{sip_req_host}}" expression="{_domain_match(domain_name)}"/>\n'
-            f'  <condition field="destination_number" expression="^({number})$">\n'
+            f'  <condition field="destination_number" expression="^({re.escape(number)})$">\n'
             '    <action application="set" data="hangup_after_bridge=true"/>\n'
             '    <action application="set" data="continue_on_fail=true"/>\n'
             f'    <action application="set" data="call_timeout={timeout}"/>\n'
             '    <action application="export" data="rtp_timeout_sec=30"/>\n'
-            f'    <action application="bridge" data="{bridge_data}"/>\n'
+            f'    <action application="bridge" data="{_xml(bridge_data)}"/>\n'
             "  </condition>\n"
             "</extension>"
         )
@@ -654,6 +722,7 @@ class FusionpbxClient:
         the call (deferred via execute_on_answer so it doesn't pre-answer the leg).
         Verbatim from deploy/core/freeswitch/kamailio-internal-to-domain.xml.
         """
+        _require_domain(domain_name)
         rec = ""
         if recording:
             rec = (
@@ -767,13 +836,25 @@ class FusionpbxClient:
         (rtpengine re-anchor); provisioning works, media is a tracked follow-up. See
         deploy/core/freeswitch/README.md.
         """
+        _require_domain(domain_name)
+        _require_dial_token(number)
+        if not agents:
+            raise BadRequestError("Queue requires at least one agent")
+        desired_agents = list(dict.fromkeys(agents))
+        for agent in desired_agents:
+            _require_dial_token(agent, "agent")
+
         cmds: list[str] = []
         changed = False
+        runtime_reload = False
         try:
             with self._engine.begin() as conn:
                 domain_uuid, _ = self._ensure_domain(conn, domain_name)
                 qrow = conn.execute(
-                    select(v_call_center_queues.c.call_center_queue_uuid)
+                    select(
+                        v_call_center_queues.c.call_center_queue_uuid,
+                        v_call_center_queues.c.queue_strategy,
+                    )
                     .where(v_call_center_queues.c.domain_uuid == domain_uuid)
                     .where(v_call_center_queues.c.queue_extension == number)
                 ).first()
@@ -794,56 +875,112 @@ class FusionpbxClient:
                     cmds.append(f"callcenter_config queue load {number}@{domain_name}")
                 else:
                     queue_uuid = qrow.call_center_queue_uuid
-                for ext in agents:
+                    if qrow.queue_strategy != strategy:
+                        conn.execute(
+                            update(v_call_center_queues)
+                            .where(
+                                v_call_center_queues.c.call_center_queue_uuid
+                                == queue_uuid
+                            )
+                            .values(queue_strategy=strategy)
+                        )
+                        changed = True
+                        runtime_reload = True
+
+                existing_tiers = conn.execute(
+                    select(
+                        v_call_center_tiers.c.call_center_tier_uuid,
+                        v_call_center_tiers.c.call_center_agent_uuid,
+                        v_call_center_tiers.c.agent_name,
+                    ).where(
+                        v_call_center_tiers.c.call_center_queue_uuid == queue_uuid
+                    )
+                ).fetchall()
+                desired_agent_set = set(desired_agents)
+                existing_tier_agents = {t.agent_name for t in existing_tiers}
+                for tier in existing_tiers:
+                    if tier.agent_name in desired_agent_set:
+                        continue
+                    conn.execute(
+                        delete(v_call_center_tiers).where(
+                            v_call_center_tiers.c.call_center_tier_uuid
+                            == tier.call_center_tier_uuid
+                        )
+                    )
+                    changed = True
+                    runtime_reload = True
+
+                    remaining_refs = conn.execute(
+                        select(func.count())
+                        .select_from(v_call_center_tiers)
+                        .where(
+                            v_call_center_tiers.c.call_center_agent_uuid
+                            == tier.call_center_agent_uuid
+                        )
+                    ).scalar_one()
+                    if remaining_refs == 0:
+                        conn.execute(
+                            delete(v_call_center_agents).where(
+                                v_call_center_agents.c.call_center_agent_uuid
+                                == tier.call_center_agent_uuid
+                            )
+                        )
+
+                for ext in desired_agents:
                     arow = conn.execute(
                         select(v_call_center_agents.c.call_center_agent_uuid)
                         .where(v_call_center_agents.c.domain_uuid == domain_uuid)
                         .where(v_call_center_agents.c.agent_id == ext)
                     ).first()
-                    if arow is not None:
-                        continue
-                    agent_uuid = str(uuid.uuid4())
                     contact = f"user/{ext}@{domain_name}"
-                    conn.execute(
-                        insert(v_call_center_agents).values(
-                            call_center_agent_uuid=agent_uuid,
-                            domain_uuid=domain_uuid,
-                            agent_id=ext,
-                            agent_name=ext,
-                            agent_type="callback",
-                            agent_contact=contact,
-                            agent_status="Available (On Demand)",
-                            insert_date=datetime.now(UTC),
+                    if arow is None:
+                        agent_uuid = str(uuid.uuid4())
+                        conn.execute(
+                            insert(v_call_center_agents).values(
+                                call_center_agent_uuid=agent_uuid,
+                                domain_uuid=domain_uuid,
+                                agent_id=ext,
+                                agent_name=ext,
+                                agent_type="callback",
+                                agent_contact=contact,
+                                agent_status="Available (On Demand)",
+                                insert_date=datetime.now(UTC),
+                            )
                         )
-                    )
-                    conn.execute(
-                        insert(v_call_center_tiers).values(
-                            call_center_tier_uuid=str(uuid.uuid4()),
-                            domain_uuid=domain_uuid,
-                            call_center_queue_uuid=queue_uuid,
-                            call_center_agent_uuid=agent_uuid,
-                            queue_name=number,
-                            agent_name=ext,
-                            tier_level=1,
-                            tier_position=1,
+                        changed = True
+                        cmds += [
+                            f"callcenter_config agent add {agent_uuid} 'callback'",
+                            f"callcenter_config agent set contact {agent_uuid} '{contact}'",
+                            f"callcenter_config agent set status {agent_uuid} 'Available (On Demand)'",
+                        ]
+                    else:
+                        agent_uuid = arow.call_center_agent_uuid
+                    if ext not in existing_tier_agents:
+                        conn.execute(
+                            insert(v_call_center_tiers).values(
+                                call_center_tier_uuid=str(uuid.uuid4()),
+                                domain_uuid=domain_uuid,
+                                call_center_queue_uuid=queue_uuid,
+                                call_center_agent_uuid=agent_uuid,
+                                queue_name=number,
+                                agent_name=ext,
+                                tier_level=1,
+                                tier_position=1,
+                            )
                         )
-                    )
-                    changed = True
-                    cmds += [
-                        f"callcenter_config agent add {agent_uuid} 'callback'",
-                        f"callcenter_config agent set contact {agent_uuid} '{contact}'",
-                        f"callcenter_config agent set status {agent_uuid} 'Available (On Demand)'",
-                        f"callcenter_config tier add {number}@{domain_name} {agent_uuid} 1 1",
-                    ]
+                        changed = True
+                        cmds.append(
+                            f"callcenter_config tier add {number}@{domain_name} {agent_uuid} 1 1"
+                        )
                 queue_dp_name = feature_dialplan_name("queue", domain_name, number)
                 dp_xml = (
-                    f'<extension name="{queue_dp_name}" continue="false">\n'
+                    f'<extension name="{_xml(queue_dp_name)}" continue="false">\n'
                     '  <condition field="${network_addr}" expression="^10\\.10\\.10\\.1$"/>\n'
                     f'  <condition field="${{sip_req_host}}" expression="{_domain_match(domain_name)}"/>\n'
-                    f'  <condition field="destination_number" expression="^({number})$">\n'
+                    f'  <condition field="destination_number" expression="^({re.escape(number)})$">\n'
                     '    <action application="answer"/>\n'
                     '    <action application="sleep" data="500"/>\n'
-                    f'    <action application="callcenter" data="{number}@{domain_name}"/>\n'
+                    f'    <action application="callcenter" data="{_xml(number)}@{_xml(domain_name)}"/>\n'
                     '    <action application="hangup"/>\n'
                     "  </condition>\n"
                     "</extension>"
@@ -853,6 +990,9 @@ class FusionpbxClient:
                     tag=f"dotmac-voice:queue:{domain_name}",
                 ):
                     changed = True
+                if runtime_reload:
+                    cmds.insert(0, f"callcenter_config queue unload {number}@{domain_name}")
+                    cmds.append(f"callcenter_config queue load {number}@{domain_name}")
         except _UNAVAILABLE as exc:
             raise ServiceUnavailableError(f"FusionPBX DB unreachable: {exc}") from exc
         except IntegrityError as exc:
@@ -889,6 +1029,8 @@ class FusionpbxClient:
 
     def delete_voicemail(self, domain_name: str, number: str) -> bool:
         """Idempotently remove a voicemail box."""
+        _require_domain(domain_name)
+        _require_dial_token(number)
         deleted = False
         try:
             with self._engine.begin() as conn:
@@ -909,8 +1051,10 @@ class FusionpbxClient:
 
     def delete_queue(self, domain_name: str, number: str) -> bool:
         """Idempotently remove a call-center queue: tiers + queue row + dialplan, and
-        issue a best-effort runtime ``callcenter_config queue unload``. (Agents are
-        left; they are harmless without a referencing tier -- cleanup is a follow-up.)"""
+        issue a best-effort runtime ``callcenter_config queue unload``. Agents left
+        without any tier references are removed too."""
+        _require_domain(domain_name)
+        _require_dial_token(number)
         deleted = False
         try:
             with self._engine.begin() as conn:
@@ -923,6 +1067,15 @@ class FusionpbxClient:
                     .where(v_call_center_queues.c.queue_extension == number)
                 ).first()
                 if qrow is not None:
+                    agent_ids = [
+                        row.call_center_agent_uuid
+                        for row in conn.execute(
+                            select(v_call_center_tiers.c.call_center_agent_uuid).where(
+                                v_call_center_tiers.c.call_center_queue_uuid
+                                == qrow.call_center_queue_uuid
+                            )
+                        ).fetchall()
+                    ]
                     conn.execute(
                         delete(v_call_center_tiers).where(
                             v_call_center_tiers.c.call_center_queue_uuid
@@ -935,6 +1088,22 @@ class FusionpbxClient:
                             == qrow.call_center_queue_uuid
                         )
                     )
+                    for agent_uuid in agent_ids:
+                        remaining_refs = conn.execute(
+                            select(func.count())
+                            .select_from(v_call_center_tiers)
+                            .where(
+                                v_call_center_tiers.c.call_center_agent_uuid
+                                == agent_uuid
+                            )
+                        ).scalar_one()
+                        if remaining_refs == 0:
+                            conn.execute(
+                                delete(v_call_center_agents).where(
+                                    v_call_center_agents.c.call_center_agent_uuid
+                                    == agent_uuid
+                                )
+                            )
                     deleted = True
                 dp = conn.execute(
                     delete(v_dialplans)
@@ -955,6 +1124,7 @@ class FusionpbxClient:
     def list_managed_dialplans(self, domain_name: str) -> set[str]:
         """Names of per-domain FEATURE dialplans (conference/ring-group/IVR) managed
         for this domain -- for drift reconciliation. Excludes shared routing + queues."""
+        _require_domain(domain_name)
         tag = f"dotmac-voice:feature:{domain_name}"
         try:
             with self._engine.begin() as conn:
@@ -969,6 +1139,7 @@ class FusionpbxClient:
 
     def list_queues(self, domain_name: str) -> set[str]:
         """Queue extensions managed for this domain (scoped by domain_uuid)."""
+        _require_domain(domain_name)
         try:
             with self._engine.begin() as conn:
                 domain_uuid = self._domain_uuid_for(conn, domain_name)
@@ -988,6 +1159,7 @@ class FusionpbxClient:
         tiers from the persisted DB, restoring in-memory mod_callcenter state after a
         FreeSWITCH restart (DB rows alone don't reload). Idempotent -- mod_callcenter
         tolerates re-load/re-add."""
+        _require_domain(domain_name)
         cmds: list[str] = []
         n_queues = n_agents = 0
         try:
@@ -1037,6 +1209,8 @@ class FusionpbxClient:
     def list_voicemail_messages(self, domain_name: str, extension: str) -> list[dict]:
         """List stored voicemail messages for an extension's box, newest first.
         Metadata only (no audio payload)."""
+        _require_domain(domain_name)
+        _require_dial_token(extension, "extension")
         try:
             with self._engine.begin() as conn:
                 domain_uuid = self._domain_uuid_for(conn, domain_name)
@@ -1087,6 +1261,14 @@ class FusionpbxClient:
     ) -> dict:
         """Idempotently provision an IVR menu <number>: play greeting, collect one
         digit, transfer to the mapped target (re-enters the public context)."""
+        _require_domain(domain_name)
+        _require_dial_token(number)
+        if not options:
+            raise BadRequestError("IVR requires at least one option")
+        for digit, target in options.items():
+            if not _IVR_DIGIT_RE.fullmatch(digit):
+                raise BadRequestError("IVR option keys must be single digits")
+            _require_dial_token(target, "IVR target")
         items = sorted(options.items())
         digits = "".join(d for d, _ in items)
         regex = f"^[{digits}]$"
@@ -1096,15 +1278,15 @@ class FusionpbxClient:
             expr = "${cond(${ivr_choice} == " + digit + " ? " + tgt + " : " + expr + ")}"
         name = feature_dialplan_name("ivr", domain_name, number)
         xml = (
-            f'<extension name="{name}" continue="false">\n'
+            f'<extension name="{_xml(name)}" continue="false">\n'
             '  <condition field="${network_addr}" expression="^10\\.10\\.10\\.1$"/>\n'
             f'  <condition field="${{sip_req_host}}" expression="{_domain_match(domain_name)}"/>\n'
-            f'  <condition field="destination_number" expression="^({number})$">\n'
+            f'  <condition field="destination_number" expression="^({re.escape(number)})$">\n'
             '    <action application="answer"/>\n'
             '    <action application="sleep" data="500"/>\n'
             '    <action application="play_and_get_digits" '
-            f'data="1 1 3 {timeout} # {greeting} silence_stream://250 ivr_choice {regex}"/>\n'
-            f'    <action application="set" data="ivr_target={expr}"/>\n'
+            f'data="1 1 3 {timeout} # {_xml(greeting)} silence_stream://250 ivr_choice {regex}"/>\n'
+            f'    <action application="set" data="ivr_target={_xml(expr)}"/>\n'
             '    <action application="transfer" data="${ivr_target} XML public"/>\n'
             "  </condition>\n"
             "</extension>"
@@ -1138,6 +1320,8 @@ class FusionpbxClient:
         Raises:
             ServiceUnavailableError: If the FusionPBX DB is unreachable.
         """
+        _require_domain(domain_name)
+        _require_dial_token(number)
         try:
             with self._engine.begin() as conn:
                 domain_uuid = self._domain_uuid_for(conn, domain_name)

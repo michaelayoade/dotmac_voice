@@ -88,21 +88,32 @@ def reconcile_voice(db: Session, client, customer_id: str) -> SyncStatus:
         # Compute delta
         delta = compute_delta(desired, actual)
 
-        # Create missing extensions (sorted for determinism)
-        for number in sorted(delta.to_create):
+        desired_by_number = {e.number: e for e in desired_exts}
+
+        # Create missing extensions and refresh mutable extension metadata on
+        # existing rows (display name/caller ID) through the idempotent client.
+        for number in sorted(desired):
+            ext = desired_by_number[number]
             client.create_extension(
-                domain.fusionpbx_domain, number, password="", display_name=""
+                domain.fusionpbx_domain,
+                number,
+                password="",
+                display_name=ext.display_name,
             )
 
         # Delete stale extensions (sorted for determinism)
         for number in sorted(delta.to_delete):
             client.delete_extension(domain.fusionpbx_domain, number)
+            if hasattr(client, "delete_voicemail"):
+                client.delete_voicemail(domain.fusionpbx_domain, number)
 
         if domain.is_active:
             # Ensure a voicemail box for each voicemail-enabled extension.
             for ext in sorted(desired_exts, key=lambda e: e.number):
                 if ext.voicemail_enabled:
                     client.ensure_voicemail(domain.fusionpbx_domain, ext.number)
+                elif hasattr(client, "delete_voicemail"):
+                    client.delete_voicemail(domain.fusionpbx_domain, ext.number)
 
             # Bootstrap the switch + ensure the FS-in-path internal routing dialplan
             # (idempotent). These make extensions reachable + voicemail land. (Global
@@ -143,6 +154,14 @@ def reconcile_voice(db: Session, client, customer_id: str) -> SyncStatus:
                 desired_queues.add(q.number)
             for num in client.list_queues(dom_name) - desired_queues:
                 client.delete_queue(dom_name, num)
+        else:
+            # Suspended customers must not retain feature entry points. Extension
+            # removal blocks registrations and direct user routes; this removes
+            # PBX-hosted features such as IVRs, conferences, ring groups, queues.
+            for name in client.list_managed_dialplans(domain.fusionpbx_domain):
+                client.delete_dialplan(name)
+            for num in client.list_queues(domain.fusionpbx_domain):
+                client.delete_queue(domain.fusionpbx_domain, num)
 
         domain.sync_status = SyncStatus.synced
 

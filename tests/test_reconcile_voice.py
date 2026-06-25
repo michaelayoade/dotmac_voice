@@ -15,6 +15,7 @@ class _FakeClient:
     def __init__(self):
         self.created = []
         self.voicemails = []
+        self.deleted_voicemails = []
         self.routed = []
 
     def ensure_switch_settings(self):
@@ -42,6 +43,19 @@ class _FakeClient:
         """Mock ensure_voicemail: record the voicemail box ensured."""
         self.voicemails.append(number)
         return {"voicemail_id": number, "created": True}
+
+    def delete_voicemail(self, domain, number):
+        self.deleted_voicemails.append(number)
+        return True
+
+    def delete_extension(self, domain, number):
+        return True
+
+    def delete_dialplan(self, name):
+        return True
+
+    def delete_queue(self, domain, number):
+        return True
 
 
 def test_reconcile_creates_missing_extension(db_session):
@@ -73,6 +87,7 @@ class _FakeClientWithExtras:
     def __init__(self):
         self.created = []
         self.deleted = []
+        self.deleted_voicemails = []
 
     def list_extensions(self, domain):
         """Mock list_extensions: returns desired + extra 9999."""
@@ -85,6 +100,10 @@ class _FakeClientWithExtras:
     def delete_extension(self, domain, number):
         """Mock delete_extension: record that this number was deleted."""
         self.deleted.append(number)
+        return True
+
+    def delete_voicemail(self, domain, number):
+        self.deleted_voicemails.append(number)
         return True
 
     def ensure_voicemail(self, domain, number, *, enabled=True, password=""):
@@ -101,6 +120,12 @@ class _FakeClientWithExtras:
 
     def list_queues(self, domain):
         return set()
+
+    def delete_dialplan(self, name):
+        return True
+
+    def delete_queue(self, domain, number):
+        return True
 
 
 def test_reconcile_deletes_extra_extensions(db_session):
@@ -122,9 +147,11 @@ def test_reconcile_deletes_extra_extensions(db_session):
     assert status == SyncStatus.synced
     assert dom.sync_status == SyncStatus.synced
     assert client.deleted == ["9999"]
+    assert client.deleted_voicemails == ["9999"]
 
-    # Verify no creations (1001 already exists)
-    assert len(client.created) == 0
+    # Reconcile idempotently re-applies desired extensions (upsert for metadata),
+    # so 1001 is re-sent to the client; only the drift extension 9999 is deleted.
+    assert client.created == ["1001"]
 
 
 def test_reconcile_ensures_voicemail_for_enabled_extensions(db_session):
@@ -144,6 +171,32 @@ def test_reconcile_ensures_voicemail_for_enabled_extensions(db_session):
     # 1001 has voicemail enabled -> box ensured; 1002 disabled -> not.
     assert "1001" in client.voicemails
     assert "1002" not in client.voicemails
+    assert "1002" in client.deleted_voicemails
+
+
+def test_reconcile_passes_display_name_to_extension_upsert(db_session):
+    """Existing/missing extension upserts include caller-ID display names."""
+    dom = VoiceDomain(customer_id="name-c1", fusionpbx_domain="name-c1.local")
+    db_session.add(dom)
+    db_session.flush()
+    db_session.add(Extension(voice_domain_id=dom.id, number="1001", display_name="Alice"))
+    db_session.flush()
+
+    class _Fake(_FakeClient):
+        def __init__(self):
+            super().__init__()
+            self.upserts = []
+
+        def list_extensions(self, domain):
+            return [{"number": "1001"}]
+
+        def create_extension(self, domain, number, password, display_name=""):
+            self.upserts.append((number, display_name))
+
+    client = _Fake()
+    reconcile_voice(db_session, client, "name-c1")
+
+    assert ("1001", "Alice") in client.upserts
 
 
 def test_reconcile_suspend_removes_extensions_keeps_models(db_session):
@@ -173,6 +226,9 @@ def test_reconcile_suspend_removes_extensions_keeps_models(db_session):
             self.deleted.append(n)
             return True
 
+        def delete_voicemail(self, d, n):
+            return True
+
         def ensure_voicemail(self, d, n, *, enabled=True, password=""):
             raise AssertionError("must not ensure voicemail while suspended")
 
@@ -182,6 +238,18 @@ def test_reconcile_suspend_removes_extensions_keeps_models(db_session):
         def ensure_routing(self, d, *, recording=False):
             raise AssertionError("must not ensure routing while suspended")
 
+        def list_managed_dialplans(self, d):
+            return set()
+
+        def list_queues(self, d):
+            return set()
+
+        def delete_dialplan(self, name):
+            return True
+
+        def delete_queue(self, d, n):
+            return True
+
     fake = _Fake()
     reconcile_voice(db_session, fake, "susprec-c1")
     assert fake.deleted == ["1001"]  # removed from PBX
@@ -189,6 +257,66 @@ def test_reconcile_suspend_removes_extensions_keeps_models(db_session):
         db_session.scalars(_select(Extension).where(Extension.voice_domain_id == dom.id))
     )
     assert len(exts) == 1  # model preserved
+
+
+def test_reconcile_suspend_removes_live_features(db_session):
+    """Suspension removes PBX-hosted feature entry points as well as extensions."""
+    dom = VoiceDomain(
+        customer_id="suspf-c1", fusionpbx_domain="suspf-c1.local", is_active=False
+    )
+    db_session.add(dom)
+    db_session.flush()
+    db_session.add(Extension(voice_domain_id=dom.id, number="1001"))
+    db_session.flush()
+
+    class _Fake:
+        def __init__(self):
+            self.deleted_extensions = []
+            self.deleted_dialplans = []
+            self.deleted_queues = []
+
+        def list_extensions(self, d):
+            return [{"number": "1001"}]
+
+        def create_extension(self, d, n, password, display_name=""):
+            raise AssertionError("must not create while suspended")
+
+        def delete_extension(self, d, n):
+            self.deleted_extensions.append(n)
+            return True
+
+        def delete_voicemail(self, d, n):
+            return True
+
+        def ensure_voicemail(self, d, n, *, enabled=True, password=""):
+            raise AssertionError("must not ensure voicemail while suspended")
+
+        def ensure_switch_settings(self):
+            raise AssertionError("must not bootstrap while suspended")
+
+        def ensure_routing(self, d, *, recording=False):
+            raise AssertionError("must not ensure routing while suspended")
+
+        def list_managed_dialplans(self, d):
+            return {"kamailio-ivr-suspf-c1.local-4000"}
+
+        def list_queues(self, d):
+            return {"5000"}
+
+        def delete_dialplan(self, name):
+            self.deleted_dialplans.append(name)
+            return True
+
+        def delete_queue(self, d, n):
+            self.deleted_queues.append(n)
+            return True
+
+    fake = _Fake()
+    reconcile_voice(db_session, fake, "suspf-c1")
+
+    assert fake.deleted_extensions == ["1001"]
+    assert fake.deleted_dialplans == ["kamailio-ivr-suspf-c1.local-4000"]
+    assert fake.deleted_queues == ["5000"]
 
 
 def test_reconcile_applies_and_drifts_features(db_session):
@@ -220,6 +348,9 @@ def test_reconcile_applies_and_drifts_features(db_session):
             pass
 
         def delete_extension(self, d, n):
+            return True
+
+        def delete_voicemail(self, d, n):
             return True
 
         def ensure_voicemail(self, d, n, *, enabled=True, password=""):

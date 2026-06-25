@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import HTTPException, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -132,7 +133,9 @@ def register_error_handlers(app: object) -> None:
             content=_error_payload(
                 "validation_error",
                 "Validation error",
-                exc.errors(),
+                # jsonable_encoder handles non-serializable ctx (e.g. the ValueError
+                # a model_validator/field_validator raises lands in ctx['error']).
+                jsonable_encoder(exc.errors()),
                 request_id,
             ),
         )

@@ -258,6 +258,24 @@ class TestCreateExtension:
         assert second["password"] == "hunter2"
         reloader.assert_not_called()
 
+    def test_updates_existing_display_name(self, client, fpbx_engine, reloader):
+        client.create_extension("a.local", "1001", display_name="Alice")
+        reloader.reset_mock()
+
+        client.create_extension("a.local", "1001", display_name="Alice Updated")
+
+        with fpbx_engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT effective_caller_id_name, outbound_caller_id_name, "
+                    "directory_first_name FROM v_extensions WHERE extension = '1001'"
+                )
+            ).one()
+        assert row.effective_caller_id_name == "Alice Updated"
+        assert row.outbound_caller_id_name == "Alice Updated"
+        assert row.directory_first_name == "Alice Updated"
+        reloader.assert_called_once()
+
     def test_returns_shape(self, client):
         result = client.create_extension("a.local", "1001")
         assert set(result) >= {"number", "extension_uuid", "password"}
@@ -536,6 +554,28 @@ class TestEnsureQueue:
         assert second["created"] is False
         reloader.assert_not_called()
 
+    def test_queue_membership_shrinks_to_exact_agents(self, fpbx_engine):
+        commander = MagicMock()
+        c = FusionpbxClient(engine=fpbx_engine, reloader=MagicMock(), commander=commander)
+        c.ensure_queue("a.local", "5000", agents=["1002", "1003"])
+        commander.reset_mock()
+
+        result = c.ensure_queue("a.local", "5000", agents=["1002"])
+
+        with fpbx_engine.connect() as conn:
+            agents = conn.execute(
+                text("SELECT agent_id FROM v_call_center_agents ORDER BY agent_id")
+            ).fetchall()
+            tiers = conn.execute(
+                text("SELECT agent_name FROM v_call_center_tiers ORDER BY agent_name")
+            ).fetchall()
+        assert result["created"] is True
+        assert [a.agent_id for a in agents] == ["1002"]
+        assert [t.agent_name for t in tiers] == ["1002"]
+        cmds = " ".join(call.args[0] for call in commander.call_args_list)
+        assert "queue unload 5000@a.local" in cmds
+        assert "queue load 5000@a.local" in cmds
+
 
 class TestDeletePrimitives:
     def test_delete_dialplan(self, client, fpbx_engine):
@@ -565,10 +605,11 @@ class TestDeletePrimitives:
                 text("SELECT count(*) FROM v_call_center_queues WHERE queue_extension='5000'")
             ).scalar_one()
             tiers = conn.execute(text("SELECT count(*) FROM v_call_center_tiers")).scalar_one()
+            agents = conn.execute(text("SELECT count(*) FROM v_call_center_agents")).scalar_one()
             dp = conn.execute(
                 text("SELECT count(*) FROM v_dialplans WHERE dialplan_name='kamailio-queue-a.local-5000'")
             ).scalar_one()
-        assert q == 0 and tiers == 0 and dp == 0
+        assert q == 0 and tiers == 0 and agents == 0 and dp == 0
         cmds = " ".join(call.args[0] for call in commander.call_args_list)
         assert "queue unload 5000@a.local" in cmds
         assert c.delete_queue("a.local", "5000") is False  # idempotent
