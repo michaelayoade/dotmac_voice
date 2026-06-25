@@ -106,6 +106,10 @@ class MockSettings:
     voice_ingress_api_keys = "test-ingress-key"
     voice_ingress_allowed_ips = ""
     token_signing_key = "test-token-key"
+    turn_static_auth_secret = ""
+    turn_urls = ""
+    stun_urls = "stun:stun.l.google.com:19302"
+    turn_credential_ttl = 3600
 
 
 mock_config_module.settings = MockSettings()

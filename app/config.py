@@ -107,6 +107,12 @@ class Settings:
     voice_ingress_api_keys: str = os.getenv("VOICE_INGRESS_API_KEYS", "")
     voice_ingress_allowed_ips: str = os.getenv("VOICE_INGRESS_ALLOWED_IPS", "")
     token_signing_key: str = os.getenv("TOKEN_SIGNING_KEY", "dev-token-key")
+    # WebRTC ICE. TURN uses coturn's REST (static-auth-secret) ephemeral creds;
+    # TURN is omitted from the bootstrap when the secret is unset. Comma-separated URLs.
+    turn_static_auth_secret: str = os.getenv("TURN_STATIC_AUTH_SECRET", "")
+    turn_urls: str = os.getenv("TURN_URLS", "")
+    stun_urls: str = os.getenv("STUN_URLS", "stun:stun.l.google.com:19302")
+    turn_credential_ttl: int = int(os.getenv("TURN_CREDENTIAL_TTL", "3600"))
 
 
 def validate_settings(s: Settings) -> list[ConfigWarning]:

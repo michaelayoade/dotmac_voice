@@ -1,8 +1,35 @@
+import base64
+import hashlib
+import hmac
+import time
 from datetime import UTC, datetime, timedelta
 
 from jose import jwt
 
 from app.config import settings
+
+
+def turn_credentials(secret: str, ttl: int) -> tuple[str, str]:
+    """coturn REST (static-auth-secret) ephemeral credentials:
+    username = <expiry-epoch>, password = base64(HMAC-SHA1(secret, username))."""
+    username = str(int(time.time()) + ttl)
+    digest = hmac.new(secret.encode(), username.encode(), hashlib.sha1).digest()
+    return username, base64.b64encode(digest).decode()
+
+
+def build_ice_servers() -> list[dict]:
+    """STUN + (when a TURN secret is configured) ephemeral-TURN ICE servers."""
+    servers: list[dict] = []
+    stun = [u.strip() for u in settings.stun_urls.split(",") if u.strip()]
+    if stun:
+        servers.append({"urls": stun})
+    turn = [u.strip() for u in settings.turn_urls.split(",") if u.strip()]
+    if settings.turn_static_auth_secret and turn:
+        username, credential = turn_credentials(
+            settings.turn_static_auth_secret, settings.turn_credential_ttl
+        )
+        servers.append({"urls": turn, "username": username, "credential": credential})
+    return servers
 
 _MIN_TTL_SECONDS = 1
 _MAX_TTL_SECONDS = 300

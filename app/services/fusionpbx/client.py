@@ -1281,6 +1281,24 @@ class FusionpbxClient:
         modules = {req: any(req in name for name in enabled) for req in required}
         return {"ready": all(modules.values()), "modules": modules}
 
+    def get_extension_secret(self, domain_name: str, number: str) -> str | None:
+        """Return an extension's SIP password (for WebRTC client registration), or
+        None if the domain/extension is unknown."""
+        _require_domain(domain_name)
+        try:
+            with self._engine.connect() as conn:
+                domain_uuid = self._domain_uuid_for(conn, domain_name)
+                if domain_uuid is None:
+                    return None
+                row = conn.execute(
+                    select(v_extensions.c.password)
+                    .where(v_extensions.c.domain_uuid == domain_uuid)
+                    .where(v_extensions.c.extension == number)
+                ).first()
+        except _UNAVAILABLE as exc:
+            raise ServiceUnavailableError(f"FusionPBX DB unreachable: {exc}") from exc
+        return row.password if row else None
+
     def create_ivr(
         self,
         domain_name: str,
