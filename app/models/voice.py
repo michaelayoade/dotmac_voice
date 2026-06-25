@@ -37,9 +37,7 @@ class VoiceDomain(Base):
     recording_enabled: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False
     )
-    last_reconciled_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
+    last_reconciled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
@@ -60,7 +58,9 @@ class Extension(Base):
     )
     number: Mapped[str] = mapped_column(String(32), nullable=False)
     display_name: Mapped[str] = mapped_column(String(120), nullable=False, default="")
-    voicemail_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    voicemail_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False
+    )
     sync_status: Mapped[SyncStatus] = mapped_column(
         Enum(SyncStatus), default=SyncStatus.pending, nullable=False
     )
@@ -86,13 +86,21 @@ class Cdr(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     call_uuid: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    customer_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    customer_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
     direction: Mapped[str] = mapped_column(String(16), nullable=False, default="")
     caller: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     callee: Mapped[str] = mapped_column(String(64), nullable=False, default="")
-    start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    answer_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    start_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    answer_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    end_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     billsec: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     hangup_cause: Mapped[str] = mapped_column(String(64), nullable=False, default="")
@@ -132,7 +140,9 @@ class ConferenceRoom(_FeatureBase):
 
 class RingGroup(_FeatureBase):
     __tablename__ = "voice_ring_groups"
-    strategy: Mapped[str] = mapped_column(String(20), nullable=False, default="simultaneous")
+    strategy: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="simultaneous"
+    )
     members: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     timeout: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
 
@@ -148,5 +158,7 @@ class IvrMenu(_FeatureBase):
 class Queue(_FeatureBase):
     __tablename__ = "voice_queues"
     name: Mapped[str] = mapped_column(String(120), nullable=False, default="")
-    strategy: Mapped[str] = mapped_column(String(40), nullable=False, default="ring-all")
+    strategy: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="ring-all"
+    )
     agents: Mapped[list] = mapped_column(JSON, nullable=False, default=list)

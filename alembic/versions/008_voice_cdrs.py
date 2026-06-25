@@ -6,9 +6,10 @@ Create Date: 2026-06-22 00:00:00.000000
 
 """
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = "008_voice_cdrs"
 down_revision = "007_voice_domains"
@@ -37,13 +38,17 @@ def upgrade() -> None:
             sa.Column("start_at", sa.DateTime(timezone=True), nullable=True),
             sa.Column("answer_at", sa.DateTime(timezone=True), nullable=True),
             sa.Column("end_at", sa.DateTime(timezone=True), nullable=True),
-            sa.Column("duration_seconds", sa.Integer(), nullable=False, server_default="0"),
+            sa.Column(
+                "duration_seconds", sa.Integer(), nullable=False, server_default="0"
+            ),
             sa.Column("billsec", sa.Integer(), nullable=False, server_default="0"),
             sa.Column("hangup_cause", sa.String(64), nullable=False, server_default=""),
             sa.Column("recording_url", sa.String(512), nullable=True),
             sa.Column(
                 "rating_status",
-                postgresql.ENUM("raw", "rated", "fed", name="cdrratingstatus", create_type=False),
+                postgresql.ENUM(
+                    "raw", "rated", "fed", name="cdrratingstatus", create_type=False
+                ),
                 nullable=False,
                 server_default="raw",
             ),

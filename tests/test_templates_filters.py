@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
-
-import pytest
+from datetime import UTC, date, datetime
 
 from app.templates import (
     _format_currency,
@@ -120,37 +118,37 @@ class TestFormatNumber:
 
 class TestTimeago:
     def test_just_now(self) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         assert _timeago(now) == "just now"
 
     def test_minutes(self) -> None:
         from datetime import timedelta
 
-        past = datetime.now(timezone.utc) - timedelta(minutes=5)
+        past = datetime.now(UTC) - timedelta(minutes=5)
         assert _timeago(past) == "5m ago"
 
     def test_hours(self) -> None:
         from datetime import timedelta
 
-        past = datetime.now(timezone.utc) - timedelta(hours=3)
+        past = datetime.now(UTC) - timedelta(hours=3)
         assert _timeago(past) == "3h ago"
 
     def test_days(self) -> None:
         from datetime import timedelta
 
-        past = datetime.now(timezone.utc) - timedelta(days=7)
+        past = datetime.now(UTC) - timedelta(days=7)
         assert _timeago(past) == "7d ago"
 
     def test_months(self) -> None:
         from datetime import timedelta
 
-        past = datetime.now(timezone.utc) - timedelta(days=60)
+        past = datetime.now(UTC) - timedelta(days=60)
         assert _timeago(past) == "2mo ago"
 
     def test_years(self) -> None:
         from datetime import timedelta
 
-        past = datetime.now(timezone.utc) - timedelta(days=400)
+        past = datetime.now(UTC) - timedelta(days=400)
         assert _timeago(past) == "1y ago"
 
     def test_none_returns_empty(self) -> None:
@@ -159,6 +157,6 @@ class TestTimeago:
     def test_naive_datetime_treated_as_utc(self) -> None:
         from datetime import timedelta
 
-        past = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=2)
+        past = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=2)
         result = _timeago(past)
         assert "h ago" in result

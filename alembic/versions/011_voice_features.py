@@ -7,8 +7,9 @@ Create Date: 2026-06-24 00:00:00.000000
 """
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects.postgresql import UUID
+
+from alembic import op
 
 revision = "011_voice_features"
 down_revision = "010_voice_domain_is_active"
@@ -43,7 +44,9 @@ def upgrade() -> None:
     op.create_table(
         "voice_ring_groups",
         *_common(),
-        sa.Column("strategy", sa.String(20), nullable=False, server_default="simultaneous"),
+        sa.Column(
+            "strategy", sa.String(20), nullable=False, server_default="simultaneous"
+        ),
         sa.Column("members", sa.JSON(), nullable=False, server_default="[]"),
         sa.Column("timeout", sa.Integer(), nullable=False, server_default="30"),
     )

@@ -31,7 +31,9 @@ def test_production_flags_default_esl_password(monkeypatch):
 def test_production_accepts_overridden_esl_password(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
     cfg = _load_real_config()
-    warnings = cfg.validate_settings(cfg.Settings(esl_password="a-strong-unique-secret"))
+    warnings = cfg.validate_settings(
+        cfg.Settings(esl_password="a-strong-unique-secret")
+    )
     assert not any("ESL_PASSWORD" in w.message for w in warnings)
 
 

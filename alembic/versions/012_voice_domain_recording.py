@@ -7,6 +7,7 @@ Create Date: 2026-06-25 00:00:00.000000
 """
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "012_voice_domain_recording"

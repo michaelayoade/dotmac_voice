@@ -48,7 +48,9 @@ def put_domain(
     db: Session = Depends(get_db),
     client: FusionpbxClient = Depends(get_fusionpbx_client),
 ) -> DomainSyncResult:
-    domain = db.scalar(select(VoiceDomain).where(VoiceDomain.customer_id == customer_id))
+    domain = db.scalar(
+        select(VoiceDomain).where(VoiceDomain.customer_id == customer_id)
+    )
     if not domain:
         domain = VoiceDomain(
             customer_id=customer_id, fusionpbx_domain=payload.fusionpbx_domain
@@ -96,7 +98,9 @@ def put_domain(
 def _set_active(
     db: Session, client: FusionpbxClient, customer_id: str, active: bool
 ) -> DomainSyncResult:
-    domain = db.scalar(select(VoiceDomain).where(VoiceDomain.customer_id == customer_id))
+    domain = db.scalar(
+        select(VoiceDomain).where(VoiceDomain.customer_id == customer_id)
+    )
     if not domain:
         raise NotFoundError(f"No voice domain for customer {customer_id}")
     domain.is_active = active
@@ -135,7 +139,9 @@ def deprovision_domain(
 ) -> dict:
     """Deprovision a customer: delete all feature/extension models, reconcile to an
     empty desired state (removes everything from FusionPBX), then drop the domain."""
-    domain = db.scalar(select(VoiceDomain).where(VoiceDomain.customer_id == customer_id))
+    domain = db.scalar(
+        select(VoiceDomain).where(VoiceDomain.customer_id == customer_id)
+    )
     if not domain:
         raise NotFoundError(f"No voice domain for customer {customer_id}")
     # Force the full removal path even if the customer was suspended.
@@ -144,7 +150,9 @@ def deprovision_domain(
         for obj in db.scalars(select(cls).where(cls.voice_domain_id == domain.id)):
             db.delete(obj)
     db.flush()
-    reconcile_voice(db, client, customer_id)  # empty desired -> removes all from FusionPBX
+    reconcile_voice(
+        db, client, customer_id
+    )  # empty desired -> removes all from FusionPBX
     db.delete(domain)
     _commit(db)
     return {"customer_id": customer_id, "deprovisioned": True}
@@ -159,7 +167,9 @@ def resync_domain(
     """Recover a customer after a FreeSWITCH restart: re-apply desired state, then
     force-re-issue runtime queue state from the DB (reconcile alone won't, since the
     DB is unchanged)."""
-    domain = db.scalar(select(VoiceDomain).where(VoiceDomain.customer_id == customer_id))
+    domain = db.scalar(
+        select(VoiceDomain).where(VoiceDomain.customer_id == customer_id)
+    )
     if not domain:
         raise NotFoundError(f"No voice domain for customer {customer_id}")
     status = reconcile_voice(db, client, customer_id)
@@ -193,7 +203,9 @@ def get_voicemail_messages(
     client: FusionpbxClient = Depends(get_fusionpbx_client),
 ) -> list[dict]:
     """List stored voicemail messages for a customer's extension (metadata only)."""
-    domain = db.scalar(select(VoiceDomain).where(VoiceDomain.customer_id == customer_id))
+    domain = db.scalar(
+        select(VoiceDomain).where(VoiceDomain.customer_id == customer_id)
+    )
     if not domain:
         raise NotFoundError(f"No voice domain for customer {customer_id}")
     return client.list_voicemail_messages(domain.fusionpbx_domain, extension)

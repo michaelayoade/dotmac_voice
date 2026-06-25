@@ -244,6 +244,7 @@ def _conf_room(domain_name: str, number: str) -> str:
     _require_dial_token(number)
     return f"{domain_name.replace('.', '_')}-{number}"
 
+
 # Errors that mean the FusionPBX database is unreachable / a transport fault.
 _UNAVAILABLE = (OperationalError, InterfaceError)
 
@@ -489,8 +490,7 @@ class FusionpbxClient:
                         conn.execute(
                             update(v_extensions)
                             .where(
-                                v_extensions.c.extension_uuid
-                                == existing.extension_uuid
+                                v_extensions.c.extension_uuid == existing.extension_uuid
                             )
                             .values(
                                 effective_caller_id_name=display_name,
@@ -537,7 +537,8 @@ class FusionpbxClient:
             raise BadRequestError(f"FusionPBX extension insert failed: {exc}") from exc
         if wrote:
             self._reload()
-        assert result is not None
+        if result is None:  # the create/lookup path above always sets result
+            raise ServiceUnavailableError("extension upsert returned no result")
         return result
 
     def ensure_voicemail(
@@ -657,7 +658,11 @@ class FusionpbxClient:
             with self._engine.begin() as conn:
                 self._ensure_domain(conn, domain_name)
                 changed = self._ensure_dialplan(
-                    conn, name=name, number=number, order=55, xml=xml,
+                    conn,
+                    name=name,
+                    number=number,
+                    order=55,
+                    xml=xml,
                     tag=f"dotmac-voice:feature:{domain_name}",
                 )
         except _UNAVAILABLE as exc:
@@ -709,7 +714,11 @@ class FusionpbxClient:
             with self._engine.begin() as conn:
                 self._ensure_domain(conn, domain_name)
                 changed = self._ensure_dialplan(
-                    conn, name=name, number=number, order=52, xml=xml,
+                    conn,
+                    name=name,
+                    number=number,
+                    order=52,
+                    xml=xml,
                     tag=f"dotmac-voice:feature:{domain_name}",
                 )
         except _UNAVAILABLE as exc:
@@ -748,7 +757,9 @@ class FusionpbxClient:
         xml = (
             '<extension name="kamailio-internal-to-domain" continue="false">\n'
             '  <condition field="${network_addr}" expression="^10\\.10\\.10\\.1$"/>\n'
-            '  <condition field="destination_number" expression="^(' + ext_pattern + ')$">\n'
+            '  <condition field="destination_number" expression="^('
+            + ext_pattern
+            + ')$">\n'
             '    <action application="set" data="hangup_after_bridge=true"/>\n'
             '    <action application="set" data="continue_on_fail=true"/>\n'
             '    <action application="export" data="rtp_timeout_sec=30"/>\n'
@@ -772,7 +783,11 @@ class FusionpbxClient:
             with self._engine.begin() as conn:
                 self._ensure_domain(conn, domain_name)
                 changed = self._ensure_dialplan(
-                    conn, name="kamailio-internal-to-domain", number="", order=50, xml=xml,
+                    conn,
+                    name="kamailio-internal-to-domain",
+                    number="",
+                    order=50,
+                    xml=xml,
                     tag="dotmac-voice:routing",
                 )
         except _UNAVAILABLE as exc:
@@ -795,7 +810,9 @@ class FusionpbxClient:
                         v_default_settings.c.default_setting_value,
                     )
                     .where(v_default_settings.c.default_setting_category == "switch")
-                    .where(v_default_settings.c.default_setting_subcategory == "voicemail")
+                    .where(
+                        v_default_settings.c.default_setting_subcategory == "voicemail"
+                    )
                     .where(v_default_settings.c.default_setting_name == "dir")
                 ).first()
                 if row is None:
@@ -906,9 +923,7 @@ class FusionpbxClient:
                         v_call_center_tiers.c.call_center_tier_uuid,
                         v_call_center_tiers.c.call_center_agent_uuid,
                         v_call_center_tiers.c.agent_name,
-                    ).where(
-                        v_call_center_tiers.c.call_center_queue_uuid == queue_uuid
-                    )
+                    ).where(v_call_center_tiers.c.call_center_queue_uuid == queue_uuid)
                 ).fetchall()
                 desired_agent_set = set(desired_agents)
                 existing_tier_agents = {t.agent_name for t in existing_tiers}
@@ -1000,12 +1015,18 @@ class FusionpbxClient:
                     "</extension>"
                 )
                 if self._ensure_dialplan(
-                    conn, name=queue_dp_name, number=number, order=53, xml=dp_xml,
+                    conn,
+                    name=queue_dp_name,
+                    number=number,
+                    order=53,
+                    xml=dp_xml,
                     tag=f"dotmac-voice:queue:{domain_name}",
                 ):
                     changed = True
                 if runtime_reload:
-                    cmds.insert(0, f"callcenter_config queue unload {number}@{domain_name}")
+                    cmds.insert(
+                        0, f"callcenter_config queue unload {number}@{domain_name}"
+                    )
                     cmds.append(f"callcenter_config queue load {number}@{domain_name}")
         except _UNAVAILABLE as exc:
             raise ServiceUnavailableError(f"FusionPBX DB unreachable: {exc}") from exc
@@ -1277,7 +1298,9 @@ class FusionpbxClient:
                 ).fetchall()
         except _UNAVAILABLE as exc:
             raise ServiceUnavailableError(f"FusionPBX DB unreachable: {exc}") from exc
-        enabled = [(r.module_name or "").lower() for r in rows if bool(r.module_enabled)]
+        enabled = [
+            (r.module_name or "").lower() for r in rows if bool(r.module_enabled)
+        ]
         modules = {req: any(req in name for name in enabled) for req in required}
         return {"ready": all(modules.values()), "modules": modules}
 
@@ -1324,7 +1347,9 @@ class FusionpbxClient:
         # Nested cond() mapping the collected digit -> target (last entry = default).
         expr = items[-1][1]
         for digit, tgt in reversed(items[:-1]):
-            expr = "${cond(${ivr_choice} == " + digit + " ? " + tgt + " : " + expr + ")}"
+            expr = (
+                "${cond(${ivr_choice} == " + digit + " ? " + tgt + " : " + expr + ")}"
+            )
         name = feature_dialplan_name("ivr", domain_name, number)
         xml = (
             f'<extension name="{_xml(name)}" continue="false">\n'
@@ -1345,7 +1370,11 @@ class FusionpbxClient:
             with self._engine.begin() as conn:
                 self._ensure_domain(conn, domain_name)
                 changed = self._ensure_dialplan(
-                    conn, name=name, number=number, order=54, xml=xml,
+                    conn,
+                    name=name,
+                    number=number,
+                    order=54,
+                    xml=xml,
                     tag=f"dotmac-voice:feature:{domain_name}",
                 )
         except _UNAVAILABLE as exc:

@@ -1,4 +1,5 @@
 """Outbound webhook delivery service for CRM notifications."""
+
 from __future__ import annotations
 
 import hashlib
@@ -41,7 +42,9 @@ def attempt_delivery(
     """
     endpoint: WebhookEndpoint | None = db.get(WebhookEndpoint, delivery.endpoint_id)
     if endpoint is None:
-        logger.error("Endpoint %s not found for delivery %s", delivery.endpoint_id, delivery.id)
+        logger.error(
+            "Endpoint %s not found for delivery %s", delivery.endpoint_id, delivery.id
+        )
         delivery.attempts += 1
         delivery.last_error = "endpoint not found"
         if delivery.attempts >= max_attempts:

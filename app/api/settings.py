@@ -44,7 +44,9 @@ def list_auth_settings(
 def upsert_auth_setting(
     key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)
 ):
-    return _commit_and_refresh(db, settings_service.upsert_auth_setting(db, key, payload))
+    return _commit_and_refresh(
+        db, settings_service.upsert_auth_setting(db, key, payload)
+    )
 
 
 @router.get(
@@ -83,7 +85,9 @@ def list_audit_settings(
 def upsert_audit_setting(
     key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)
 ):
-    return _commit_and_refresh(db, settings_service.upsert_audit_setting(db, key, payload))
+    return _commit_and_refresh(
+        db, settings_service.upsert_audit_setting(db, key, payload)
+    )
 
 
 @router.get(
@@ -122,7 +126,9 @@ def list_scheduler_settings(
 def upsert_scheduler_setting(
     key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)
 ):
-    return _commit_and_refresh(db, settings_service.upsert_scheduler_setting(db, key, payload))
+    return _commit_and_refresh(
+        db, settings_service.upsert_scheduler_setting(db, key, payload)
+    )
 
 
 @router.get(

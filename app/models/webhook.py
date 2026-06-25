@@ -1,4 +1,5 @@
 """Webhook endpoint and delivery models for outbound CRM notifications."""
+
 import enum
 import uuid
 from datetime import UTC, datetime
@@ -34,9 +35,7 @@ class WebhookEndpoint(Base):
 
 class WebhookDelivery(Base):
     __tablename__ = "voice_webhook_deliveries"
-    __table_args__ = (
-        Index("ix_voice_webhook_deliveries_endpoint_id", "endpoint_id"),
-    )
+    __table_args__ = (Index("ix_voice_webhook_deliveries_endpoint_id", "endpoint_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4

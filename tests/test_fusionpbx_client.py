@@ -130,26 +130,34 @@ def fpbx_engine() -> Engine:
                 """
             )
         )
-        conn.execute(text(
-            "CREATE TABLE v_modules (module_uuid TEXT PRIMARY KEY, "
-            "module_name TEXT, module_enabled BOOLEAN)"
-        ))
-        conn.execute(text(
-            "CREATE TABLE v_call_center_queues (call_center_queue_uuid TEXT PRIMARY KEY, "
-            "domain_uuid TEXT, queue_name TEXT, queue_extension TEXT, queue_strategy TEXT, "
-            "queue_moh_sound TEXT, insert_date TEXT)"
-        ))
-        conn.execute(text(
-            "CREATE TABLE v_call_center_agents (call_center_agent_uuid TEXT PRIMARY KEY, "
-            "domain_uuid TEXT, agent_id TEXT, agent_name TEXT, agent_type TEXT, "
-            "agent_contact TEXT, agent_status TEXT, insert_date TEXT)"
-        ))
-        conn.execute(text(
-            "CREATE TABLE v_call_center_tiers (call_center_tier_uuid TEXT PRIMARY KEY, "
-            "domain_uuid TEXT, call_center_queue_uuid TEXT, call_center_agent_uuid TEXT, "
-            "queue_name TEXT, agent_name TEXT, tier_level INTEGER, tier_position INTEGER, "
-            "insert_date TEXT)"
-        ))
+        conn.execute(
+            text(
+                "CREATE TABLE v_modules (module_uuid TEXT PRIMARY KEY, "
+                "module_name TEXT, module_enabled BOOLEAN)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE TABLE v_call_center_queues (call_center_queue_uuid TEXT PRIMARY KEY, "
+                "domain_uuid TEXT, queue_name TEXT, queue_extension TEXT, queue_strategy TEXT, "
+                "queue_moh_sound TEXT, insert_date TEXT)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE TABLE v_call_center_agents (call_center_agent_uuid TEXT PRIMARY KEY, "
+                "domain_uuid TEXT, agent_id TEXT, agent_name TEXT, agent_type TEXT, "
+                "agent_contact TEXT, agent_status TEXT, insert_date TEXT)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE TABLE v_call_center_tiers (call_center_tier_uuid TEXT PRIMARY KEY, "
+                "domain_uuid TEXT, call_center_queue_uuid TEXT, call_center_agent_uuid TEXT, "
+                "queue_name TEXT, agent_name TEXT, tier_level INTEGER, tier_position INTEGER, "
+                "insert_date TEXT)"
+            )
+        )
     return engine
 
 
@@ -551,7 +559,9 @@ class TestEnsureQueue:
 
     def test_is_idempotent(self, fpbx_engine):
         reloader = MagicMock()
-        c = FusionpbxClient(engine=fpbx_engine, reloader=reloader, commander=MagicMock())
+        c = FusionpbxClient(
+            engine=fpbx_engine, reloader=reloader, commander=MagicMock()
+        )
         c.ensure_queue("a.local", "5000", agents=["1002"])
         reloader.reset_mock()
         second = c.ensure_queue("a.local", "5000", agents=["1002"])
@@ -560,7 +570,9 @@ class TestEnsureQueue:
 
     def test_queue_membership_shrinks_to_exact_agents(self, fpbx_engine):
         commander = MagicMock()
-        c = FusionpbxClient(engine=fpbx_engine, reloader=MagicMock(), commander=commander)
+        c = FusionpbxClient(
+            engine=fpbx_engine, reloader=MagicMock(), commander=commander
+        )
         c.ensure_queue("a.local", "5000", agents=["1002", "1003"])
         commander.reset_mock()
 
@@ -591,7 +603,9 @@ class TestDeletePrimitives:
                 {"n": "kamailio-conference-a.local-3001"},
             ).scalar_one()
         assert n == 0
-        assert client.delete_dialplan("kamailio-conference-a.local-3001") is False  # idempotent
+        assert (
+            client.delete_dialplan("kamailio-conference-a.local-3001") is False
+        )  # idempotent
 
     def test_delete_voicemail(self, client):
         client.ensure_voicemail("a.local", "1001")
@@ -600,18 +614,28 @@ class TestDeletePrimitives:
 
     def test_delete_queue(self, fpbx_engine):
         commander = MagicMock()
-        c = FusionpbxClient(engine=fpbx_engine, reloader=MagicMock(), commander=commander)
+        c = FusionpbxClient(
+            engine=fpbx_engine, reloader=MagicMock(), commander=commander
+        )
         c.ensure_queue("a.local", "5000", agents=["1002", "1003"])
         commander.reset_mock()
         assert c.delete_queue("a.local", "5000") is True
         with fpbx_engine.connect() as conn:
             q = conn.execute(
-                text("SELECT count(*) FROM v_call_center_queues WHERE queue_extension='5000'")
+                text(
+                    "SELECT count(*) FROM v_call_center_queues WHERE queue_extension='5000'"
+                )
             ).scalar_one()
-            tiers = conn.execute(text("SELECT count(*) FROM v_call_center_tiers")).scalar_one()
-            agents = conn.execute(text("SELECT count(*) FROM v_call_center_agents")).scalar_one()
+            tiers = conn.execute(
+                text("SELECT count(*) FROM v_call_center_tiers")
+            ).scalar_one()
+            agents = conn.execute(
+                text("SELECT count(*) FROM v_call_center_agents")
+            ).scalar_one()
             dp = conn.execute(
-                text("SELECT count(*) FROM v_dialplans WHERE dialplan_name='kamailio-queue-a.local-5000'")
+                text(
+                    "SELECT count(*) FROM v_dialplans WHERE dialplan_name='kamailio-queue-a.local-5000'"
+                )
             ).scalar_one()
         assert q == 0 and tiers == 0 and agents == 0 and dp == 0
         cmds = " ".join(call.args[0] for call in commander.call_args_list)
@@ -622,19 +646,25 @@ class TestDeletePrimitives:
 class TestResyncQueues:
     def test_reissues_runtime_from_db(self, fpbx_engine):
         commander = MagicMock()
-        c = FusionpbxClient(engine=fpbx_engine, reloader=MagicMock(), commander=commander)
+        c = FusionpbxClient(
+            engine=fpbx_engine, reloader=MagicMock(), commander=commander
+        )
         c.ensure_queue("a.local", "5000", agents=["1002", "1003"])
         commander.reset_mock()  # simulate FS restart: DB intact, runtime lost
         result = c.resync_queues("a.local")
         cmds = [call.args[0] for call in commander.call_args_list]
         assert "callcenter_config queue load 5000@a.local" in cmds
         assert any("agent set contact" in x and "user/1002@a.local" in x for x in cmds)
-        assert any(x.startswith("callcenter_config tier add 5000@a.local") for x in cmds)
+        assert any(
+            x.startswith("callcenter_config tier add 5000@a.local") for x in cmds
+        )
         assert result == {"queues": 1, "agents": 2}
 
     def test_no_queues_is_noop(self, fpbx_engine):
         commander = MagicMock()
-        c = FusionpbxClient(engine=fpbx_engine, reloader=MagicMock(), commander=commander)
+        c = FusionpbxClient(
+            engine=fpbx_engine, reloader=MagicMock(), commander=commander
+        )
         c.create_domain("a.local")
         assert c.resync_queues("a.local") == {"queues": 0, "agents": 0}
         commander.assert_not_called()
@@ -659,12 +689,14 @@ class TestMultiTenantIsolation:
             "kamailio-conference-b.local-3001",
         }
         # each fires only for its own domain's calls (${sip_req_host})
-        assert 'field="${sip_req_host}" expression="^a\\.local$"' in xml_by_name[
-            "kamailio-conference-a.local-3001"
-        ]
-        assert 'field="${sip_req_host}" expression="^b\\.local$"' in xml_by_name[
-            "kamailio-conference-b.local-3001"
-        ]
+        assert (
+            'field="${sip_req_host}" expression="^a\\.local$"'
+            in xml_by_name["kamailio-conference-a.local-3001"]
+        )
+        assert (
+            'field="${sip_req_host}" expression="^b\\.local$"'
+            in xml_by_name["kamailio-conference-b.local-3001"]
+        )
         # distinct conference rooms -> no cross-customer merge
         assert "a_local-3001@default" in xml_by_name["kamailio-conference-a.local-3001"]
         assert "b_local-3001@default" in xml_by_name["kamailio-conference-b.local-3001"]
@@ -673,8 +705,12 @@ class TestMultiTenantIsolation:
         """list_managed_dialplans returns only the queried domain's features."""
         client.create_conference("a.local", "3001")
         client.create_conference("b.local", "3001")
-        assert client.list_managed_dialplans("a.local") == {"kamailio-conference-a.local-3001"}
-        assert client.list_managed_dialplans("b.local") == {"kamailio-conference-b.local-3001"}
+        assert client.list_managed_dialplans("a.local") == {
+            "kamailio-conference-a.local-3001"
+        }
+        assert client.list_managed_dialplans("b.local") == {
+            "kamailio-conference-b.local-3001"
+        }
 
 
 class TestVoicemailMessages:
@@ -698,9 +734,13 @@ class TestVoicemailMessages:
                     ),
                     {
                         "u": f"00000000-0000-0000-0000-00000000000{i}",
-                        "d": box.domain_uuid, "v": box.voicemail_uuid,
-                        "e": epoch, "n": "Caller", "num": f"234800000{i}",
-                        "len": 12, "s": "",
+                        "d": box.domain_uuid,
+                        "v": box.voicemail_uuid,
+                        "e": epoch,
+                        "n": "Caller",
+                        "num": f"234800000{i}",
+                        "len": 12,
+                        "s": "",
                     },
                 )
         msgs = client.list_voicemail_messages("a.local", "1002")
@@ -716,10 +756,12 @@ class TestVoicemailMessages:
 class TestBootstrapReadiness:
     def test_reports_required_modules(self, client, fpbx_engine):
         with fpbx_engine.begin() as conn:
-            conn.execute(text(
-                "INSERT INTO v_modules (module_uuid, module_name, module_enabled) "
-                "VALUES ('m1','mod_voicemail',1), ('m2','mod_callcenter',0)"
-            ))
+            conn.execute(
+                text(
+                    "INSERT INTO v_modules (module_uuid, module_name, module_enabled) "
+                    "VALUES ('m1','mod_voicemail',1), ('m2','mod_callcenter',0)"
+                )
+            )
         report = client.check_readiness()
         assert report["modules"]["voicemail"] is True
         assert report["modules"]["callcenter"] is False
@@ -727,8 +769,10 @@ class TestBootstrapReadiness:
 
     def test_ready_when_all_enabled(self, client, fpbx_engine):
         with fpbx_engine.begin() as conn:
-            conn.execute(text(
-                "INSERT INTO v_modules (module_uuid, module_name, module_enabled) "
-                "VALUES ('m1','mod_voicemail',1), ('m2','mod_callcenter',1)"
-            ))
+            conn.execute(
+                text(
+                    "INSERT INTO v_modules (module_uuid, module_name, module_enabled) "
+                    "VALUES ('m1','mod_voicemail',1), ('m2','mod_callcenter',1)"
+                )
+            )
         assert client.check_readiness()["ready"] is True

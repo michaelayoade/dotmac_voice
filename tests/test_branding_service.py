@@ -32,9 +32,7 @@ def test_save_branding_persists_values(db_session) -> None:
     assert branding["primary_color"] == "#112233"
     assert branding["accent_color"] == "#445566"
     setting = (
-        db_session.query(DomainSetting)
-        .filter(DomainSetting.key == "ui_branding")
-        .one()
+        db_session.query(DomainSetting).filter(DomainSetting.key == "ui_branding").one()
     )
     assert setting.domain == SettingDomain.branding
 

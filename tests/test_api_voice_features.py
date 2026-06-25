@@ -46,7 +46,9 @@ class _FakeClient:
         self.calls.append(("conference", domain, number))
         return {"name": f"kamailio-conference-{number}", "created": True}
 
-    def create_ring_group(self, domain, number, members, *, strategy="simultaneous", timeout=30):
+    def create_ring_group(
+        self, domain, number, members, *, strategy="simultaneous", timeout=30
+    ):
         self.calls.append(("ringgroup", domain, number, tuple(members), strategy))
         return {"name": f"kamailio-ringgroup-{number}", "created": True}
 
@@ -78,16 +80,36 @@ def test_feature_endpoints_call_primitives(client):
     _provision_domain(client, fake, "feat-c1", "feat-c1.local")
 
     base = "/provisioning/domains/feat-c1/features"
-    assert client.post(f"{base}/conferences", json={"number": "3001"}, headers=INGRESS).status_code == 200
-    assert client.post(
-        f"{base}/ring-groups", json={"number": "2000", "members": ["1002", "1003"]}, headers=INGRESS
-    ).status_code == 200
-    assert client.post(
-        f"{base}/ivrs", json={"number": "4000", "options": {"1": "1002", "2": "3001"}}, headers=INGRESS
-    ).status_code == 200
-    assert client.post(
-        f"{base}/queues", json={"number": "5000", "agents": ["1002"]}, headers=INGRESS
-    ).status_code == 200
+    assert (
+        client.post(
+            f"{base}/conferences", json={"number": "3001"}, headers=INGRESS
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            f"{base}/ring-groups",
+            json={"number": "2000", "members": ["1002", "1003"]},
+            headers=INGRESS,
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            f"{base}/ivrs",
+            json={"number": "4000", "options": {"1": "1002", "2": "3001"}},
+            headers=INGRESS,
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            f"{base}/queues",
+            json={"number": "5000", "agents": ["1002"]},
+            headers=INGRESS,
+        ).status_code
+        == 200
+    )
 
     kinds = {c[0] for c in fake.calls}
     assert {"conference", "ringgroup", "ivr", "queue"} == kinds
@@ -105,22 +127,37 @@ def test_feature_delete_removes_model(client, db_session):
     fake = _FakeClient()
     _provision_domain(client, fake, "del-c1", "del-c1.local")
     base = "/provisioning/domains/del-c1/features"
-    assert client.post(f"{base}/conferences", json={"number": "3001"}, headers=INGRESS).status_code == 200
-    dom = db_session.scalar(select(VoiceDomain).where(VoiceDomain.customer_id == "del-c1"))
-    assert db_session.scalar(
-        select(ConferenceRoom).where(ConferenceRoom.voice_domain_id == dom.id)
-    ) is not None
+    assert (
+        client.post(
+            f"{base}/conferences", json={"number": "3001"}, headers=INGRESS
+        ).status_code
+        == 200
+    )
+    dom = db_session.scalar(
+        select(VoiceDomain).where(VoiceDomain.customer_id == "del-c1")
+    )
+    assert (
+        db_session.scalar(
+            select(ConferenceRoom).where(ConferenceRoom.voice_domain_id == dom.id)
+        )
+        is not None
+    )
 
     assert client.delete(f"{base}/conferences/3001", headers=INGRESS).status_code == 200
     db_session.expire_all()
-    assert db_session.scalar(
-        select(ConferenceRoom).where(ConferenceRoom.voice_domain_id == dom.id)
-    ) is None
+    assert (
+        db_session.scalar(
+            select(ConferenceRoom).where(ConferenceRoom.voice_domain_id == dom.id)
+        )
+        is None
+    )
     client.app.dependency_overrides.pop(get_fusionpbx_client)
 
 
 def test_feature_endpoint_requires_ingress(client):
-    r = client.post("/provisioning/domains/x/features/conferences", json={"number": "3001"})
+    r = client.post(
+        "/provisioning/domains/x/features/conferences", json={"number": "3001"}
+    )
     assert r.status_code == 401
 
 
@@ -165,19 +202,30 @@ def test_put_features_replaces_full_set(client, db_session):
         headers=INGRESS,
     )
     assert r1.status_code == 200
-    dom = db_session.scalar(select(VoiceDomain).where(VoiceDomain.customer_id == "fs-c1"))
-    confs = {c.number for c in db_session.scalars(
-        select(ConferenceRoom).where(ConferenceRoom.voice_domain_id == dom.id))}
+    dom = db_session.scalar(
+        select(VoiceDomain).where(VoiceDomain.customer_id == "fs-c1")
+    )
+    confs = {
+        c.number
+        for c in db_session.scalars(
+            select(ConferenceRoom).where(ConferenceRoom.voice_domain_id == dom.id)
+        )
+    }
     assert confs == {"3001"}
 
     # Replace with a different set: 3001 removed, 3002 added, ring group removed.
     r2 = client.put(base, json={"conferences": [{"number": "3002"}]}, headers=INGRESS)
     assert r2.status_code == 200
     db_session.expire_all()
-    confs = {c.number for c in db_session.scalars(
-        select(ConferenceRoom).where(ConferenceRoom.voice_domain_id == dom.id))}
+    confs = {
+        c.number
+        for c in db_session.scalars(
+            select(ConferenceRoom).where(ConferenceRoom.voice_domain_id == dom.id)
+        )
+    }
     assert confs == {"3002"}
-    rgs = list(db_session.scalars(
-        select(RingGroup).where(RingGroup.voice_domain_id == dom.id)))
+    rgs = list(
+        db_session.scalars(select(RingGroup).where(RingGroup.voice_domain_id == dom.id))
+    )
     assert rgs == []
     client.app.dependency_overrides.pop(get_fusionpbx_client)

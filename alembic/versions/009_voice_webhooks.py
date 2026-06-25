@@ -6,9 +6,10 @@ Create Date: 2026-06-22 00:00:00.000000
 
 """
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = "009_voice_webhooks"
 down_revision = "008_voice_cdrs"
@@ -51,7 +52,9 @@ def upgrade() -> None:
             sa.Column(
                 "status",
                 postgresql.ENUM(
-                    "pending", "delivered", "failed",
+                    "pending",
+                    "delivered",
+                    "failed",
                     name="deliverystatus",
                     create_type=False,
                 ),

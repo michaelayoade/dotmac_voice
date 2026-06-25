@@ -1,4 +1,5 @@
 """CDR ingest and feed endpoints."""
+
 import logging
 
 from fastapi import APIRouter, Depends, Query

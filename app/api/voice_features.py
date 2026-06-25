@@ -162,58 +162,100 @@ class QueueIntent(BaseModel):
 
 
 @router.post("/conferences", response_model=DomainSyncResult)
-def post_conference(customer_id, payload: ConferenceIntent, db=Depends(get_db), client=Depends(get_fusionpbx_client)):
+def post_conference(
+    customer_id,
+    payload: ConferenceIntent,
+    db=Depends(get_db),
+    client=Depends(get_fusionpbx_client),
+):
     _upsert(db, _domain(db, customer_id), ConferenceRoom, payload.number)
     return _sync(db, client, customer_id)
 
 
 @router.delete("/conferences/{number}", response_model=DomainSyncResult)
-def delete_conference(customer_id, number: str, db=Depends(get_db), client=Depends(get_fusionpbx_client)):
+def delete_conference(
+    customer_id, number: str, db=Depends(get_db), client=Depends(get_fusionpbx_client)
+):
     _delete(db, _domain(db, customer_id), ConferenceRoom, number)
     return _sync(db, client, customer_id)
 
 
 @router.post("/ring-groups", response_model=DomainSyncResult)
-def post_ring_group(customer_id, payload: RingGroupIntent, db=Depends(get_db), client=Depends(get_fusionpbx_client)):
+def post_ring_group(
+    customer_id,
+    payload: RingGroupIntent,
+    db=Depends(get_db),
+    client=Depends(get_fusionpbx_client),
+):
     _upsert(
-        db, _domain(db, customer_id), RingGroup, payload.number,
-        members=payload.members, strategy=payload.strategy, timeout=payload.timeout,
+        db,
+        _domain(db, customer_id),
+        RingGroup,
+        payload.number,
+        members=payload.members,
+        strategy=payload.strategy,
+        timeout=payload.timeout,
     )
     return _sync(db, client, customer_id)
 
 
 @router.delete("/ring-groups/{number}", response_model=DomainSyncResult)
-def delete_ring_group(customer_id, number: str, db=Depends(get_db), client=Depends(get_fusionpbx_client)):
+def delete_ring_group(
+    customer_id, number: str, db=Depends(get_db), client=Depends(get_fusionpbx_client)
+):
     _delete(db, _domain(db, customer_id), RingGroup, number)
     return _sync(db, client, customer_id)
 
 
 @router.post("/ivrs", response_model=DomainSyncResult)
-def post_ivr(customer_id, payload: IvrIntent, db=Depends(get_db), client=Depends(get_fusionpbx_client)):
+def post_ivr(
+    customer_id,
+    payload: IvrIntent,
+    db=Depends(get_db),
+    client=Depends(get_fusionpbx_client),
+):
     _upsert(
-        db, _domain(db, customer_id), IvrMenu, payload.number,
-        options=payload.options, greeting=payload.greeting,
+        db,
+        _domain(db, customer_id),
+        IvrMenu,
+        payload.number,
+        options=payload.options,
+        greeting=payload.greeting,
     )
     return _sync(db, client, customer_id)
 
 
 @router.delete("/ivrs/{number}", response_model=DomainSyncResult)
-def delete_ivr(customer_id, number: str, db=Depends(get_db), client=Depends(get_fusionpbx_client)):
+def delete_ivr(
+    customer_id, number: str, db=Depends(get_db), client=Depends(get_fusionpbx_client)
+):
     _delete(db, _domain(db, customer_id), IvrMenu, number)
     return _sync(db, client, customer_id)
 
 
 @router.post("/queues", response_model=DomainSyncResult)
-def post_queue(customer_id, payload: QueueIntent, db=Depends(get_db), client=Depends(get_fusionpbx_client)):
+def post_queue(
+    customer_id,
+    payload: QueueIntent,
+    db=Depends(get_db),
+    client=Depends(get_fusionpbx_client),
+):
     _upsert(
-        db, _domain(db, customer_id), Queue, payload.number,
-        agents=payload.agents, name=payload.name, strategy=payload.strategy,
+        db,
+        _domain(db, customer_id),
+        Queue,
+        payload.number,
+        agents=payload.agents,
+        name=payload.name,
+        strategy=payload.strategy,
     )
     return _sync(db, client, customer_id)
 
 
 @router.delete("/queues/{number}", response_model=DomainSyncResult)
-def delete_queue(customer_id, number: str, db=Depends(get_db), client=Depends(get_fusionpbx_client)):
+def delete_queue(
+    customer_id, number: str, db=Depends(get_db), client=Depends(get_fusionpbx_client)
+):
     _delete(db, _domain(db, customer_id), Queue, number)
     return _sync(db, client, customer_id)
 
@@ -253,15 +295,24 @@ def put_features(
     dom = _domain(db, customer_id)
     _replace(db, dom, ConferenceRoom, payload.conferences, lambda i: {})
     _replace(
-        db, dom, RingGroup, payload.ring_groups,
+        db,
+        dom,
+        RingGroup,
+        payload.ring_groups,
         lambda i: {"members": i.members, "strategy": i.strategy, "timeout": i.timeout},
     )
     _replace(
-        db, dom, IvrMenu, payload.ivrs,
+        db,
+        dom,
+        IvrMenu,
+        payload.ivrs,
         lambda i: {"options": i.options, "greeting": i.greeting},
     )
     _replace(
-        db, dom, Queue, payload.queues,
+        db,
+        dom,
+        Queue,
+        payload.queues,
         lambda i: {"agents": i.agents, "name": i.name, "strategy": i.strategy},
     )
     return _sync(db, client, customer_id)

@@ -1,4 +1,5 @@
 """Tests for the background ESL->webhook consumer."""
+
 import threading
 from unittest.mock import MagicMock
 
@@ -38,7 +39,8 @@ class TestHandleEvent:
         monkeypatch.setattr(consumer_mod, "SessionLocal", lambda: fake_db)
         seen = {}
         monkeypatch.setattr(
-            consumer_mod, "dispatch_and_enqueue",
+            consumer_mod,
+            "dispatch_and_enqueue",
             lambda db, event: seen.setdefault("event", event) or [],
         )
         consumer_mod.handle_event(EVENT)
@@ -77,8 +79,12 @@ class TestEslConsumer:
 
     def test_singleton_lock_blocks_second_consumer(self, tmp_path):
         lock = str(tmp_path / "esl.lock")
-        c1 = EslConsumer(bridge_factory=lambda: FakeBridge(), handler=lambda e: None, lock_path=lock)
-        c2 = EslConsumer(bridge_factory=lambda: FakeBridge(), handler=lambda e: None, lock_path=lock)
+        c1 = EslConsumer(
+            bridge_factory=lambda: FakeBridge(), handler=lambda e: None, lock_path=lock
+        )
+        c2 = EslConsumer(
+            bridge_factory=lambda: FakeBridge(), handler=lambda e: None, lock_path=lock
+        )
         assert c1._acquire_lock() is True
         assert c2._acquire_lock() is False  # c1 holds the lock
         c1._release_lock()
@@ -95,7 +101,12 @@ class TestEslConsumer:
                 c_ref["c"].stop()  # break the loop after the second attempt
             raise RuntimeError("connect failed")
 
-        c = EslConsumer(bridge_factory=factory, handler=lambda e: None, backoff_seconds=0.01, lock_path=None)
+        c = EslConsumer(
+            bridge_factory=factory,
+            handler=lambda e: None,
+            backoff_seconds=0.01,
+            lock_path=None,
+        )
         c_ref["c"] = c
         c._run()
         assert attempts["n"] >= 2  # it retried after the first failure
@@ -107,7 +118,12 @@ class TestEslConsumer:
             started.set()
             return FakeBridge(alive=True)
 
-        c = EslConsumer(bridge_factory=factory, handler=lambda e: None, backoff_seconds=0.01, lock_path=None)
+        c = EslConsumer(
+            bridge_factory=factory,
+            handler=lambda e: None,
+            backoff_seconds=0.01,
+            lock_path=None,
+        )
         c.start()
         assert started.wait(2.0)
         c.stop(timeout=2.0)

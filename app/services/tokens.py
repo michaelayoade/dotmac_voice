@@ -31,6 +31,7 @@ def build_ice_servers() -> list[dict]:
         servers.append({"urls": turn, "username": username, "credential": credential})
     return servers
 
+
 _MIN_TTL_SECONDS = 1
 _MAX_TTL_SECONDS = 300
 

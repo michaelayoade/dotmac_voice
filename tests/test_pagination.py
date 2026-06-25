@@ -5,12 +5,11 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from sqlalchemy import Column, Integer, String, create_engine, select
+from sqlalchemy import Integer, String, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, paginate
-
 
 # ── Test DB setup ────────────────────────────────────────
 

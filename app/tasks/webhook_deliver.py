@@ -1,4 +1,5 @@
 """Celery task: deliver a webhook to its registered endpoint with retry/backoff."""
+
 from __future__ import annotations
 
 import logging
@@ -22,7 +23,9 @@ def deliver(self, delivery_id: str) -> None:  # type: ignore[override]
 
     db = SessionLocal()
     try:
-        delivery: WebhookDelivery | None = db.get(WebhookDelivery, uuid.UUID(delivery_id))
+        delivery: WebhookDelivery | None = db.get(
+            WebhookDelivery, uuid.UUID(delivery_id)
+        )
         if delivery is None:
             logger.warning("Delivery %s not found, skipping", delivery_id)
             return
@@ -31,7 +34,7 @@ def deliver(self, delivery_id: str) -> None:  # type: ignore[override]
         db.commit()
 
         if not ok and delivery.status != DeliveryStatus.failed:
-            countdown = min(2 ** self.request.retries, 300)
+            countdown = min(2**self.request.retries, 300)
             raise self.retry(countdown=countdown)
 
     except self.MaxRetriesExceededError:

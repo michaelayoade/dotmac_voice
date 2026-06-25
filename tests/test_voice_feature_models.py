@@ -20,7 +20,9 @@ def test_feature_models_persist(db_session):
             ConferenceRoom(voice_domain_id=dom.id, number="3001"),
             RingGroup(voice_domain_id=dom.id, number="2000", members=["1002", "1003"]),
             IvrMenu(voice_domain_id=dom.id, number="4000", options={"1": "1002"}),
-            Queue(voice_domain_id=dom.id, number="5000", agents=["1002"], name="Support"),
+            Queue(
+                voice_domain_id=dom.id, number="5000", agents=["1002"], name="Support"
+            ),
         ]
     )
     db_session.flush()

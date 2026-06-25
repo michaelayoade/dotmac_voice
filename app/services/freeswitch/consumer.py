@@ -7,8 +7,10 @@ the CRM in production (previously nothing installed a handler, so they never
 did). Runs in a daemon thread and reconnects with backoff. ESL stays bound to
 127.0.0.1 on the FreeSWITCH host — this consumer connects locally to it.
 """
+
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import logging
 import threading
@@ -26,7 +28,7 @@ DEFAULT_RECONNECT_BACKOFF_SECONDS = 5.0
 # lock so exactly ONE streams ESL events (otherwise every worker dispatches the
 # same event -> duplicate webhooks). On the holder's death the lock frees and a
 # waiting worker takes over within one backoff interval.
-DEFAULT_LOCK_PATH = "/tmp/dotmac_voice_esl_consumer.lock"
+DEFAULT_LOCK_PATH = "/tmp/dotmac_voice_esl_consumer.lock"  # noqa: S108  (intentional fixed cross-worker lock path)
 
 
 def handle_event(event: CallEvent) -> None:
@@ -42,7 +44,9 @@ def handle_event(event: CallEvent) -> None:
         finally:
             db.close()
     except Exception:
-        logger.exception("ESL event dispatch failed for %s", getattr(event, "name", "?"))
+        logger.exception(
+            "ESL event dispatch failed for %s", getattr(event, "name", "?")
+        )
 
 
 def _default_bridge() -> EslBridge:
@@ -77,31 +81,31 @@ class EslConsumer:
         if not self._lock_path:
             return True
         try:
-            fd = open(self._lock_path, "w")
+            # Held open for the lifetime of the lock holder (flock pattern), so a
+            # context manager would be wrong here.
+            fd = open(self._lock_path, "w")  # noqa: SIM115
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             self._lock_fd = fd
             return True
         except OSError:
-            try:
+            with contextlib.suppress(Exception):
                 fd.close()
-            except Exception:
-                pass
             return False
 
     def _release_lock(self) -> None:
         fd = self._lock_fd
         self._lock_fd = None
         if fd is not None:
-            try:
+            with contextlib.suppress(Exception):
                 fcntl.flock(fd, fcntl.LOCK_UN)
                 fd.close()
-            except Exception:
-                pass
 
     def start(self) -> None:
         if self._thread is not None:
             return
-        self._thread = threading.Thread(target=self._run, name="esl-consumer", daemon=True)
+        self._thread = threading.Thread(
+            target=self._run, name="esl-consumer", daemon=True
+        )
         self._thread.start()
         logger.info("ESL consumer started")
 
@@ -122,7 +126,9 @@ class EslConsumer:
             bridge = self._factory()
             bridge.on_event(self._handler)
             bridge.connect()
-            logger.info("ESL consumer connected (%s:%s)", settings.esl_host, settings.esl_port)
+            logger.info(
+                "ESL consumer connected (%s:%s)", settings.esl_host, settings.esl_port
+            )
             while not self._stop.is_set() and bridge.is_alive():
                 self._stop.wait(timeout=1.0)
         finally:
@@ -134,7 +140,9 @@ class EslConsumer:
                 self.run_once()
             except Exception:
                 logger.warning(
-                    "ESL connection failed; reconnecting in %ss", self._backoff, exc_info=True
+                    "ESL connection failed; reconnecting in %ss",
+                    self._backoff,
+                    exc_info=True,
                 )
             if not self._stop.is_set():
                 self._stop.wait(timeout=self._backoff)

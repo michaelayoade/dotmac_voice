@@ -152,9 +152,7 @@ def _refresh_ttl_days(db: Session | None) -> int:
 
 def _totp_issuer(db: Session | None) -> str:
     return (
-        _env_value("TOTP_ISSUER")
-        or _setting_value(db, "totp_issuer")
-        or "dotmac_voice"
+        _env_value("TOTP_ISSUER") or _setting_value(db, "totp_issuer") or "dotmac_voice"
     )
 
 
@@ -232,7 +230,9 @@ def _session_hash_secret(db: Session | None = None) -> str:
     )
     secret = resolve_secret(secret)
     if not secret:
-        raise HTTPException(status_code=500, detail="Session hash secret not configured")
+        raise HTTPException(
+            status_code=500, detail="Session hash secret not configured"
+        )
     return secret
 
 
@@ -712,7 +712,10 @@ class AuthFlow(ListResponseMixin):
                 .limit(1)
             ).first()
             if reused:
-                if len(token_hashes) > 1 and reused.previous_token_hash == token_hashes[1]:
+                if (
+                    len(token_hashes) > 1
+                    and reused.previous_token_hash == token_hashes[1]
+                ):
                     logger.warning(
                         "Matched legacy previous refresh-token hash for session %s",
                         reused.id,
@@ -723,7 +726,7 @@ class AuthFlow(ListResponseMixin):
                 raise HTTPException(
                     status_code=401,
                     detail="Refresh token reuse detected",
-            )
+                )
             raise HTTPException(status_code=401, detail="Invalid refresh token")
         if len(token_hashes) > 1 and session.token_hash == token_hashes[1]:
             logger.warning(
@@ -824,7 +827,9 @@ class AuthFlow(ListResponseMixin):
         return _me_response(person, auth)
 
     @staticmethod
-    async def upload_avatar_response(db: Session, auth: dict, file) -> AvatarUploadResponse:
+    async def upload_avatar_response(
+        db: Session, auth: dict, file
+    ) -> AvatarUploadResponse:
         person = db.get(Person, coerce_uuid(auth["person_id"]))
         if not person:
             raise HTTPException(status_code=404, detail="User not found")
@@ -911,7 +916,9 @@ class AuthFlow(ListResponseMixin):
         return SessionRevokeResponse(revoked_at=now, revoked_count=len(sessions))
 
     @staticmethod
-    def change_password_response(db: Session, auth: dict, payload) -> PasswordChangeResponse:
+    def change_password_response(
+        db: Session, auth: dict, payload
+    ) -> PasswordChangeResponse:
         credential = db.scalars(
             select(UserCredential)
             .where(UserCredential.person_id == coerce_uuid(auth["person_id"]))
@@ -923,7 +930,9 @@ class AuthFlow(ListResponseMixin):
         if not verify_password(payload.current_password, credential.password_hash):
             raise HTTPException(status_code=401, detail="Current password is incorrect")
         if payload.current_password == payload.new_password:
-            raise HTTPException(status_code=400, detail="New password must be different")
+            raise HTTPException(
+                status_code=400, detail="New password must be different"
+            )
         now = _now()
         credential.password_hash = hash_password(payload.new_password)
         credential.password_updated_at = now

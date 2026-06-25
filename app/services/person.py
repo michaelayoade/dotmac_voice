@@ -68,9 +68,7 @@ class People(ListResponseMixin):
         limit: int,
         offset: int,
     ) -> dict[str, Any]:
-        items = self.list(
-            email, status, is_active, order_by, order_dir, limit, offset
-        )
+        items = self.list(email, status, is_active, order_by, order_dir, limit, offset)
         return cast(dict[str, Any], list_response(items, limit, offset))
 
     def update(self, person_id: str, payload: PersonUpdate):

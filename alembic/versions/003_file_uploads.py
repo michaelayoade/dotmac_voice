@@ -4,9 +4,11 @@ Revision ID: 003_file_uploads
 Revises: 002_billing
 Create Date: 2026-02-16
 """
-from alembic import op
+
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = "003_file_uploads"
 down_revision = "002_billing"
@@ -41,7 +43,13 @@ def upgrade() -> None:
             sa.Column("entity_id", sa.String(120), nullable=True),
             sa.Column(
                 "status",
-                postgresql.ENUM("pending", "active", "deleted", name="fileuploadstatus", create_type=False),
+                postgresql.ENUM(
+                    "pending",
+                    "active",
+                    "deleted",
+                    name="fileuploadstatus",
+                    create_type=False,
+                ),
                 server_default="active",
             ),
             sa.Column("is_active", sa.Boolean(), server_default=sa.text("true")),

@@ -125,7 +125,9 @@ async def create_role_submit(
             description=str(data["description"]) if data.get("description") else None,
             is_active=data.get("is_active") == "on",
         )
-        Roles(db).create_with_permissions(payload, [str(item) for item in permission_ids])
+        Roles(db).create_with_permissions(
+            payload, [str(item) for item in permission_ids]
+        )
         _commit(db)
         logger.info("Created role via web: %s", payload.name)
         return RedirectResponse(

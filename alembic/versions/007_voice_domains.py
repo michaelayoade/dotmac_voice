@@ -6,9 +6,10 @@ Create Date: 2026-06-21 00:00:00.000000
 
 """
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = "007_voice_domains"
 down_revision = "006_branding_setting_domain"
@@ -46,7 +47,10 @@ def upgrade() -> None:
             sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         )
         op.create_index(
-            "ix_voice_domains_customer_id", "voice_domains", ["customer_id"], unique=True
+            "ix_voice_domains_customer_id",
+            "voice_domains",
+            ["customer_id"],
+            unique=True,
         )
     if not inspector.has_table("voice_extensions"):
         op.create_table(

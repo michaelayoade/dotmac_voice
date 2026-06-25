@@ -69,20 +69,24 @@ def client_bootstrap(
     entitlements = {
         "voicemail": bool(ext_model and ext_model.voicemail_enabled),
         "conferences": sorted(
-            c.number for c in db.scalars(
-                select(ConferenceRoom).where(ConferenceRoom.voice_domain_id == did))
+            c.number
+            for c in db.scalars(
+                select(ConferenceRoom).where(ConferenceRoom.voice_domain_id == did)
+            )
         ),
         "ring_groups": sorted(
-            r.number for r in db.scalars(
-                select(RingGroup).where(RingGroup.voice_domain_id == did))
+            r.number
+            for r in db.scalars(
+                select(RingGroup).where(RingGroup.voice_domain_id == did)
+            )
         ),
         "ivrs": sorted(
-            i.number for i in db.scalars(
-                select(IvrMenu).where(IvrMenu.voice_domain_id == did))
+            i.number
+            for i in db.scalars(select(IvrMenu).where(IvrMenu.voice_domain_id == did))
         ),
         "queues": sorted(
-            q.number for q in db.scalars(
-                select(Queue).where(Queue.voice_domain_id == did))
+            q.number
+            for q in db.scalars(select(Queue).where(Queue.voice_domain_id == did))
         ),
     }
     minted = token_service.mint_token(payload.extension, "webrtc", 300)

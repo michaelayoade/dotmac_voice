@@ -1,4 +1,5 @@
 """CDR ingest service — maps mod_json_cdr payload to Cdr model."""
+
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -38,7 +39,8 @@ def ingest_cdr(db: Session, payload: dict) -> Cdr:
     call_uuid = vars.get("uuid", "")
 
     fields = dict(
-        customer_id=vars.get("variable_dotmac_subscriber_id") or vars.get("dotmac_subscriber_id"),
+        customer_id=vars.get("variable_dotmac_subscriber_id")
+        or vars.get("dotmac_subscriber_id"),
         direction=vars.get("direction", ""),
         caller=vars.get("caller_id_number", ""),
         callee=vars.get("destination_number", ""),

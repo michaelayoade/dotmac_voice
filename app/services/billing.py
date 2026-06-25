@@ -375,9 +375,7 @@ class SubscriptionItems(ListResponseMixin):
         limit: int,
         offset: int,
     ) -> tuple[list[SubscriptionItem], int]:
-        query = select(SubscriptionItem).options(
-            selectinload(SubscriptionItem.price)
-        )
+        query = select(SubscriptionItem).options(selectinload(SubscriptionItem.price))
         if subscription_id:
             query = query.where(
                 SubscriptionItem.subscription_id == coerce_uuid(subscription_id)
@@ -573,9 +571,7 @@ class PaymentMethods(ListResponseMixin):
     ) -> tuple[list[PaymentMethod], int]:
         query = select(PaymentMethod)
         if customer_id:
-            query = query.where(
-                PaymentMethod.customer_id == coerce_uuid(customer_id)
-            )
+            query = query.where(PaymentMethod.customer_id == coerce_uuid(customer_id))
         if type:
             query = query.where(
                 PaymentMethod.type == validate_enum(type, PaymentMethodType, "type")
@@ -649,9 +645,7 @@ class PaymentIntents(ListResponseMixin):
     ) -> tuple[list[PaymentIntent], int]:
         query = select(PaymentIntent)
         if customer_id:
-            query = query.where(
-                PaymentIntent.customer_id == coerce_uuid(customer_id)
-            )
+            query = query.where(PaymentIntent.customer_id == coerce_uuid(customer_id))
         if invoice_id:
             query = query.where(PaymentIntent.invoice_id == coerce_uuid(invoice_id))
         if status:
@@ -795,7 +789,9 @@ class Discounts(ListResponseMixin):
     def create(db: Session, payload: DiscountCreate) -> Discount:
         _require_exists(db, Coupon, str(payload.coupon_id), "Coupon not found")
         if payload.customer_id:
-            _require_exists(db, Customer, str(payload.customer_id), "Customer not found")
+            _require_exists(
+                db, Customer, str(payload.customer_id), "Customer not found"
+            )
         if payload.subscription_id:
             _require_exists(
                 db, Subscription, str(payload.subscription_id), "Subscription not found"

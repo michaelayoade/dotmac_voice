@@ -12,6 +12,7 @@ def test_compute_delta_diffs_sets():
 
 class _FakeClient:
     """Mock FusionPBX client for testing."""
+
     def __init__(self):
         self.created = []
         self.voicemails = []
@@ -66,10 +67,12 @@ def test_reconcile_creates_missing_extension(db_session):
     db_session.flush()
 
     # Create extensions
-    db_session.add_all([
-        Extension(voice_domain_id=dom.id, number="1001"),
-        Extension(voice_domain_id=dom.id, number="1002"),
-    ])
+    db_session.add_all(
+        [
+            Extension(voice_domain_id=dom.id, number="1001"),
+            Extension(voice_domain_id=dom.id, number="1002"),
+        ]
+    )
     db_session.flush()
 
     # Run reconciliation
@@ -84,6 +87,7 @@ def test_reconcile_creates_missing_extension(db_session):
 
 class _FakeClientWithExtras:
     """Mock FusionPBX client with extra extensions not in desired state."""
+
     def __init__(self):
         self.created = []
         self.deleted = []
@@ -159,10 +163,12 @@ def test_reconcile_ensures_voicemail_for_enabled_extensions(db_session):
     dom = VoiceDomain(customer_id="vm-c1", fusionpbx_domain="vm-c1.local")
     db_session.add(dom)
     db_session.flush()
-    db_session.add_all([
-        Extension(voice_domain_id=dom.id, number="1001", voicemail_enabled=True),
-        Extension(voice_domain_id=dom.id, number="1002", voicemail_enabled=False),
-    ])
+    db_session.add_all(
+        [
+            Extension(voice_domain_id=dom.id, number="1001", voicemail_enabled=True),
+            Extension(voice_domain_id=dom.id, number="1002", voicemail_enabled=False),
+        ]
+    )
     db_session.flush()
 
     client = _FakeClient()
@@ -179,7 +185,9 @@ def test_reconcile_passes_display_name_to_extension_upsert(db_session):
     dom = VoiceDomain(customer_id="name-c1", fusionpbx_domain="name-c1.local")
     db_session.add(dom)
     db_session.flush()
-    db_session.add(Extension(voice_domain_id=dom.id, number="1001", display_name="Alice"))
+    db_session.add(
+        Extension(voice_domain_id=dom.id, number="1001", display_name="Alice")
+    )
     db_session.flush()
 
     class _Fake(_FakeClient):
@@ -254,7 +262,9 @@ def test_reconcile_suspend_removes_extensions_keeps_models(db_session):
     reconcile_voice(db_session, fake, "susprec-c1")
     assert fake.deleted == ["1001"]  # removed from PBX
     exts = list(
-        db_session.scalars(_select(Extension).where(Extension.voice_domain_id == dom.id))
+        db_session.scalars(
+            _select(Extension).where(Extension.voice_domain_id == dom.id)
+        )
     )
     assert len(exts) == 1  # model preserved
 
@@ -326,12 +336,16 @@ def test_reconcile_applies_and_drifts_features(db_session):
     dom = VoiceDomain(customer_id="featrec-c1", fusionpbx_domain="featrec-c1.local")
     db_session.add(dom)
     db_session.flush()
-    db_session.add_all([
-        ConferenceRoom(voice_domain_id=dom.id, number="3001"),
-        RingGroup(voice_domain_id=dom.id, number="2000", members=["1002", "1003"]),
-        IvrMenu(voice_domain_id=dom.id, number="4000", options={"1": "1002"}),
-        Queue(voice_domain_id=dom.id, number="5000", agents=["1002"], name="Support"),
-    ])
+    db_session.add_all(
+        [
+            ConferenceRoom(voice_domain_id=dom.id, number="3001"),
+            RingGroup(voice_domain_id=dom.id, number="2000", members=["1002", "1003"]),
+            IvrMenu(voice_domain_id=dom.id, number="4000", options={"1": "1002"}),
+            Queue(
+                voice_domain_id=dom.id, number="5000", agents=["1002"], name="Support"
+            ),
+        ]
+    )
     db_session.flush()
 
     class _Fake:
@@ -365,7 +379,9 @@ def test_reconcile_applies_and_drifts_features(db_session):
         def create_conference(self, d, number):
             self.created.append(("conf", number))
 
-        def create_ring_group(self, d, number, members, *, strategy="simultaneous", timeout=30):
+        def create_ring_group(
+            self, d, number, members, *, strategy="simultaneous", timeout=30
+        ):
             self.created.append(("rg", number, tuple(members)))
 
         def create_ivr(self, d, number, options, *, greeting="x"):

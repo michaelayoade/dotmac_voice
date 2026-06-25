@@ -69,7 +69,8 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S106", "S105"]  # asserts and hardcoded passwords OK in tests
+"tests/**" = ["S101", "S106", "S105", "S108"]  # asserts / hardcoded test creds / tmp dirs OK in tests
+"tests/conftest.py" = ["E402"]          # imports intentionally follow sys.modules mock setup
 "scripts/**" = ["T20"]                  # print() OK in scripts
 "alembic/**" = ["E501", "F401"]         # auto-generated migration code
 

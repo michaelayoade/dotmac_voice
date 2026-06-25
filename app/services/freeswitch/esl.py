@@ -5,10 +5,17 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
-_RELEVANT = {"CHANNEL_CREATE", "CHANNEL_ANSWER", "CHANNEL_HANGUP", "CHANNEL_HANGUP_COMPLETE"}
+_RELEVANT = {
+    "CHANNEL_CREATE",
+    "CHANNEL_ANSWER",
+    "CHANNEL_HANGUP",
+    "CHANNEL_HANGUP_COMPLETE",
+}
 
 
-def reloadxml(host: str, port: int, password: str) -> None:  # pragma: no cover - touches a real ESL socket
+def reloadxml(
+    host: str, port: int, password: str
+) -> None:  # pragma: no cover - touches a real ESL socket
     """Trigger a FreeSWITCH ``reloadxml`` over ESL so config writes go live.
 
     Best-effort: connects to the FreeSWITCH Event Socket, issues ``reloadxml``,
@@ -33,7 +40,9 @@ def reloadxml(host: str, port: int, password: str) -> None:  # pragma: no cover 
             sock.close()
 
 
-def command(host: str, port: int, password: str, cmd: str) -> None:  # pragma: no cover - touches a real ESL socket
+def command(
+    host: str, port: int, password: str, cmd: str
+) -> None:  # pragma: no cover - touches a real ESL socket
     """Issue an arbitrary FreeSWITCH ``api`` command over ESL (best-effort).
 
     Used for runtime config the DB-write + reloadxml path can't do (e.g.
@@ -112,7 +121,9 @@ class EslBridge:
         """
         self._callback = callback
 
-    def connect(self) -> None:  # pragma: no cover - exercised in integration, not unit tests
+    def connect(
+        self,
+    ) -> None:  # pragma: no cover - exercised in integration, not unit tests
         """Connect to FreeSWITCH ESL server and subscribe to events."""
         import greenswitch
 
@@ -123,7 +134,9 @@ class EslBridge:
         self._conn.register_handle("*", self._dispatch)
         self._conn.send("events plain ALL")
 
-    def originate(self, command: str) -> str:  # pragma: no cover - exercised in integration, not unit tests
+    def originate(
+        self, command: str
+    ) -> str:  # pragma: no cover - exercised in integration, not unit tests
         """Open a short-lived ESL connection, send an originate command, and close.
 
         Click-to-dial is a one-off action and ``get_esl_bridge()`` hands out a

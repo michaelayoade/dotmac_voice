@@ -6,8 +6,6 @@ import importlib
 import os
 from unittest.mock import patch
 
-import pytest
-
 
 class TestGunicornConfig:
     def test_config_loads(self) -> None:

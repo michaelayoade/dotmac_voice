@@ -1,4 +1,5 @@
 """Tests for CDR ingest and feed endpoints."""
+
 import uuid
 
 INGRESS = {"X-API-Key": "test-ingress-key"}
@@ -33,6 +34,7 @@ def test_ingest_parses_json_cdr(client, db_session):
 
     # Verify DB fields
     from sqlalchemy import select
+
     from app.models.voice import Cdr, CdrRatingStatus
 
     cdr = db_session.scalar(select(Cdr).where(Cdr.call_uuid == call_uuid))
@@ -47,7 +49,9 @@ def test_ingest_parses_json_cdr(client, db_session):
 def test_feed_returns_raw_cdrs(client):
     """After ingest, GET /cdr?rating_status=raw returns the row."""
     call_uuid = str(uuid.uuid4())
-    post_r = client.post("/cdr/ingest", json=_sample_payload(call_uuid), headers=INGRESS)
+    post_r = client.post(
+        "/cdr/ingest", json=_sample_payload(call_uuid), headers=INGRESS
+    )
     assert post_r.status_code == 201, post_r.text
 
     get_r = client.get("/cdr?rating_status=raw", headers=INGRESS)
@@ -93,6 +97,7 @@ def test_ingest_tolerates_empty_numeric_vars(client, db_session):
 
     # Verify DB row has zeros for empty/null numeric vars
     from sqlalchemy import select
+
     from app.models.voice import Cdr
 
     cdr = db_session.scalar(select(Cdr).where(Cdr.call_uuid == call_uuid))
@@ -116,8 +121,17 @@ def test_get_cdrs_by_customer(client, db_session):
     """GET /cdr?customer_id=X returns that customer's call history, newest first."""
     from app.models.voice import Cdr
 
-    db_session.add(Cdr(call_uuid="cdrcust-u1", customer_id="cdr-cust1", caller="1001", callee="1002"))
-    db_session.add(Cdr(call_uuid="cdrcust-u2", customer_id="cdr-other", caller="x", callee="y"))
+    db_session.add(
+        Cdr(
+            call_uuid="cdrcust-u1",
+            customer_id="cdr-cust1",
+            caller="1001",
+            callee="1002",
+        )
+    )
+    db_session.add(
+        Cdr(call_uuid="cdrcust-u2", customer_id="cdr-other", caller="x", callee="y")
+    )
     db_session.commit()
 
     r = client.get("/cdr?customer_id=cdr-cust1", headers=INGRESS)
@@ -173,7 +187,9 @@ def test_mark_cdrs_transitions_rating(client, db_session):
     uid = "mark-" + uuid.uuid4().hex
     client.post("/cdr/ingest", json=_sample_payload(uid), headers=INGRESS)
     r = client.post(
-        "/cdr/mark", json={"call_uuids": [uid], "rating_status": "rated"}, headers=INGRESS
+        "/cdr/mark",
+        json={"call_uuids": [uid], "rating_status": "rated"},
+        headers=INGRESS,
     )
     assert r.status_code == 200 and r.json()["marked"] == 1
     db_session.expire_all()
@@ -181,6 +197,8 @@ def test_mark_cdrs_transitions_rating(client, db_session):
     assert cdr.rating_status == CdrRatingStatus.rated
 
     r2 = client.post(
-        "/cdr/mark", json={"call_uuids": [uid], "rating_status": "bogus"}, headers=INGRESS
+        "/cdr/mark",
+        json={"call_uuids": [uid], "rating_status": "bogus"},
+        headers=INGRESS,
     )
     assert r2.status_code == 400

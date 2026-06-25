@@ -1,7 +1,5 @@
 import uuid
 
-import pytest
-
 
 class TestPersonsAPI:
     """Tests for the /people API endpoints."""

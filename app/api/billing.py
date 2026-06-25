@@ -91,7 +91,9 @@ def list_products(
 
 @router.patch("/products/{item_id}", response_model=ProductRead)
 def update_product(item_id: str, payload: ProductUpdate, db: Session = Depends(get_db)):
-    return _commit_and_refresh(db, billing_service.products.update(db, item_id, payload))
+    return _commit_and_refresh(
+        db, billing_service.products.update(db, item_id, payload)
+    )
 
 
 @router.delete("/products/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -176,7 +178,9 @@ def list_customers(
 def update_customer(
     item_id: str, payload: CustomerUpdate, db: Session = Depends(get_db)
 ):
-    return _commit_and_refresh(db, billing_service.customers.update(db, item_id, payload))
+    return _commit_and_refresh(
+        db, billing_service.customers.update(db, item_id, payload)
+    )
 
 
 @router.delete("/customers/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -222,7 +226,9 @@ def list_subscriptions(
 def update_subscription(
     item_id: str, payload: SubscriptionUpdate, db: Session = Depends(get_db)
 ):
-    return _commit_and_refresh(db, billing_service.subscriptions.update(db, item_id, payload))
+    return _commit_and_refresh(
+        db, billing_service.subscriptions.update(db, item_id, payload)
+    )
 
 
 @router.delete("/subscriptions/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -242,7 +248,9 @@ def delete_subscription(item_id: str, db: Session = Depends(get_db)) -> None:
 def create_subscription_item(
     payload: SubscriptionItemCreate, db: Session = Depends(get_db)
 ):
-    return _commit_and_refresh(db, billing_service.subscription_items.create(db, payload))
+    return _commit_and_refresh(
+        db, billing_service.subscription_items.create(db, payload)
+    )
 
 
 @router.get("/subscription-items/{item_id}", response_model=SubscriptionItemRead)
@@ -269,7 +277,9 @@ def list_subscription_items(
 def update_subscription_item(
     item_id: str, payload: SubscriptionItemUpdate, db: Session = Depends(get_db)
 ):
-    return _commit_and_refresh(db, billing_service.subscription_items.update(db, item_id, payload))
+    return _commit_and_refresh(
+        db, billing_service.subscription_items.update(db, item_id, payload)
+    )
 
 
 @router.delete("/subscription-items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -311,7 +321,9 @@ def list_invoices(
 
 @router.patch("/invoices/{item_id}", response_model=InvoiceRead)
 def update_invoice(item_id: str, payload: InvoiceUpdate, db: Session = Depends(get_db)):
-    return _commit_and_refresh(db, billing_service.invoices.update(db, item_id, payload))
+    return _commit_and_refresh(
+        db, billing_service.invoices.update(db, item_id, payload)
+    )
 
 
 @router.delete("/invoices/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -355,7 +367,9 @@ def list_invoice_items(
 def update_invoice_item(
     item_id: str, payload: InvoiceItemUpdate, db: Session = Depends(get_db)
 ):
-    return _commit_and_refresh(db, billing_service.invoice_items.update(db, item_id, payload))
+    return _commit_and_refresh(
+        db, billing_service.invoice_items.update(db, item_id, payload)
+    )
 
 
 @router.delete("/invoice-items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -401,7 +415,9 @@ def list_payment_methods(
 def update_payment_method(
     item_id: str, payload: PaymentMethodUpdate, db: Session = Depends(get_db)
 ):
-    return _commit_and_refresh(db, billing_service.payment_methods.update(db, item_id, payload))
+    return _commit_and_refresh(
+        db, billing_service.payment_methods.update(db, item_id, payload)
+    )
 
 
 @router.delete("/payment-methods/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -447,7 +463,9 @@ def list_payment_intents(
 def update_payment_intent(
     item_id: str, payload: PaymentIntentUpdate, db: Session = Depends(get_db)
 ):
-    return _commit_and_refresh(db, billing_service.payment_intents.update(db, item_id, payload))
+    return _commit_and_refresh(
+        db, billing_service.payment_intents.update(db, item_id, payload)
+    )
 
 
 # ── Usage Records ────────────────────────────────────────
@@ -591,7 +609,9 @@ def list_entitlements(
 def update_entitlement(
     item_id: str, payload: EntitlementUpdate, db: Session = Depends(get_db)
 ):
-    return _commit_and_refresh(db, billing_service.entitlements.update(db, item_id, payload))
+    return _commit_and_refresh(
+        db, billing_service.entitlements.update(db, item_id, payload)
+    )
 
 
 @router.delete("/entitlements/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -637,4 +657,6 @@ def list_webhook_events(
 def update_webhook_event(
     item_id: str, payload: WebhookEventUpdate, db: Session = Depends(get_db)
 ):
-    return _commit_and_refresh(db, billing_service.webhook_events.update(db, item_id, payload))
+    return _commit_and_refresh(
+        db, billing_service.webhook_events.update(db, item_id, payload)
+    )

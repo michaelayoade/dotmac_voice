@@ -83,7 +83,9 @@ class Roles(ListResponseMixin):
         self.replace_permissions(role.id, permission_ids)
         return role
 
-    def replace_permissions(self, role_id: object, permission_ids: Sequence[str]) -> None:
+    def replace_permissions(
+        self, role_id: object, permission_ids: Sequence[str]
+    ) -> None:
         role_uuid = coerce_uuid(str(role_id))
         existing = list(
             self.db.scalars(

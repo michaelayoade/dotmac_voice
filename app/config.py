@@ -252,9 +252,7 @@ def validate_settings(s: Settings) -> list[ConfigWarning]:
             )
         )
 
-    if production and (
-        not s.token_signing_key or len(s.token_signing_key) < 32
-    ):
+    if production and (not s.token_signing_key or len(s.token_signing_key) < 32):
         warnings.append(
             ConfigWarning(
                 "TOKEN_SIGNING_KEY must be at least 32 characters in production",

@@ -1,6 +1,5 @@
 """Tests for storage backend."""
 
-import os
 import shutil
 from pathlib import Path
 

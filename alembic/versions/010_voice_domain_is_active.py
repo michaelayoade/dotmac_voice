@@ -7,6 +7,7 @@ Create Date: 2026-06-24 00:00:00.000000
 """
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "010_voice_domain_is_active"
@@ -18,9 +19,7 @@ depends_on = None
 def upgrade() -> None:
     op.add_column(
         "voice_domains",
-        sa.Column(
-            "is_active", sa.Boolean(), nullable=False, server_default=sa.true()
-        ),
+        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
     )
 
 
