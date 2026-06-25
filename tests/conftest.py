@@ -1,7 +1,7 @@
 import os
 import sys
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import ModuleType
 from unittest.mock import MagicMock, patch
 
@@ -11,7 +11,6 @@ from jose import jwt
 from sqlalchemy import DateTime, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from sqlalchemy.pool import StaticPool
-
 
 # Create a test engine BEFORE any app imports
 _test_engine = create_engine(
@@ -35,12 +34,12 @@ class TimestampMixin:
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
     )
 
 
@@ -95,15 +94,21 @@ class MockSettings:
         "image/jpeg,image/png,image/gif,image/webp,application/pdf,text/plain,text/csv"
     )
     metrics_token = None
+    fusionpbx_db_url = "sqlite+pysqlite:///:memory:"
     fusionpbx_api_url = "http://localhost:8080"
     fusionpbx_api_key = "test-key"
     esl_host = "localhost"
     esl_port = 8021
     esl_password = "ClueCon"
+    esl_consumer_enabled = False
     edge_wss_url = "wss://sip.dotmac.io:443"
     voice_ingress_api_keys = "test-ingress-key"
     voice_ingress_allowed_ips = ""
     token_signing_key = "test-token-key"
+    turn_static_auth_secret = ""
+    turn_urls = ""
+    stun_urls = "stun:stun.l.google.com:19302"
+    turn_credential_ttl = 3600
 
 
 mock_config_module.settings = MockSettings()
@@ -121,43 +126,34 @@ os.environ["TOTP_ENCRYPTION_KEY"] = "QLUJktsTSfZEbST4R-37XmQ0tCkiVCBXZN2Zt053w8g
 os.environ["TOTP_ISSUER"] = "StarterTemplate"
 
 # Now import the models - they'll use our mocked db module
-from app.models.person import Person
-from app.models.auth import UserCredential, Session as AuthSession, SessionStatus
-from app.models.rbac import Role, Permission, RolePermission, PersonRole
-from app.models.audit import AuditEvent, AuditActorType
-from app.models.domain_settings import DomainSetting, SettingDomain
-from app.models.scheduler import ScheduledTask, ScheduleType
-from app.models.file_upload import FileUpload, FileUploadStatus
-from app.models.notification import Notification, NotificationType
+from app.models import webhook  # noqa: F401
+from app.models.audit import AuditActorType, AuditEvent
+from app.models.auth import Session as AuthSession
+from app.models.auth import SessionStatus, UserCredential
 from app.models.billing import (
-    Product,
-    Price,
-    PriceType,
     BillingScheme,
-    RecurringInterval,
-    Customer,
-    Subscription,
-    SubscriptionStatus,
-    SubscriptionItem,
-    Invoice,
-    InvoiceStatus,
-    InvoiceItem,
-    PaymentMethod,
-    PaymentMethodType,
-    PaymentIntent,
-    PaymentIntentStatus,
-    UsageRecord,
-    UsageAction,
     Coupon,
     CouponDuration,
-    Discount,
-    Entitlement,
-    EntitlementValueType,
-    WebhookEvent,
-    WebhookEventStatus,
+    Customer,
+    Price,
+    PriceType,
+    Product,
+    RecurringInterval,
+    Subscription,
+    SubscriptionItem,
+    SubscriptionStatus,
 )
-from app.models.voice import VoiceDomain, Extension, SyncStatus, Cdr, CdrRatingStatus  # noqa: F401
-from app.models import webhook  # noqa: F401
+from app.models.domain_settings import DomainSetting, SettingDomain
+from app.models.person import Person
+from app.models.rbac import Permission, PersonRole, Role
+from app.models.scheduler import ScheduledTask, ScheduleType
+from app.models.voice import (  # noqa: F401
+    Cdr,
+    CdrRatingStatus,
+    Extension,
+    SyncStatus,
+    VoiceDomain,
+)
 
 # Create all tables
 TestBase.metadata.create_all(_test_engine)
@@ -213,11 +209,29 @@ def auth_env():
 # ============ FastAPI Test Client Fixtures ============
 
 
+@pytest.fixture(autouse=True)
+def _permissive_rate_limiter(request):
+    """The module-level app's RateLimitMiddleware fails closed (503) on auth paths
+    when Redis is unavailable; the test env has no Redis. Give the limiter a
+    permissive fake so integration tests can reach auth endpoints. test_rate_limit.py
+    exercises the limiter directly (its own app + _get_redis patches) and is skipped.
+    """
+    if "test_rate_limit" in request.node.nodeid:
+        yield
+        return
+    from app.middleware.rate_limit import RateLimitMiddleware
+
+    fake = MagicMock()
+    fake.eval.return_value = [1, 1]  # (allowed, current_count) -> request allowed
+    with patch.object(RateLimitMiddleware, "_ensure_redis", lambda self: fake):
+        yield
+
+
 @pytest.fixture()
 def client(db_session):
     """Create a test client with database dependency override."""
-    from app.main import app
     from app.api.deps import get_db as api_get_db
+    from app.main import app
 
     def override_get_db():
         yield db_session
@@ -237,7 +251,7 @@ def _create_access_token(
     """Create a JWT access token for testing."""
     secret = os.getenv("JWT_SECRET", "test-secret")
     algorithm = os.getenv("JWT_ALGORITHM", "HS256")
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     expire = now + timedelta(minutes=15)
     payload = {
         "sub": person_id,
@@ -260,7 +274,7 @@ def auth_session(db_session, person):
         status=SessionStatus.active,
         ip_address="127.0.0.1",
         user_agent="pytest",
-        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+        expires_at=datetime.now(UTC) + timedelta(days=30),
     )
     db_session.add(session)
     db_session.commit()
@@ -335,7 +349,7 @@ def admin_session(db_session, admin_person):
         status=SessionStatus.active,
         ip_address="127.0.0.1",
         user_agent="pytest",
-        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+        expires_at=datetime.now(UTC) + timedelta(days=30),
     )
     db_session.add(session)
     db_session.commit()

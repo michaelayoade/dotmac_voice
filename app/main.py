@@ -68,11 +68,29 @@ async def lifespan(app: FastAPI):  # type: ignore[arg-type]
     finally:
         db.close()
 
+    # Start the ESL->webhook consumer so FreeSWITCH call events become CRM
+    # webhooks. Non-fatal: it reconnects on its own if FreeSWITCH isn't up yet.
+    app.state.esl_consumer = None
+    if settings.esl_consumer_enabled:
+        try:
+            from app.services.freeswitch.consumer import EslConsumer
+
+            consumer = EslConsumer()
+            consumer.start()
+            app.state.esl_consumer = consumer
+        except Exception:
+            logger.exception(
+                "Failed to start ESL consumer; call webhooks will not fire"
+            )
+
     logger.info("Application started (pid=%s)", os.getpid())
     yield
 
     # ── Shutdown ─────────────────────────────────────────
     logger.info("Application shutting down")
+    consumer = getattr(app.state, "esl_consumer", None)
+    if consumer is not None:
+        consumer.stop()
 
 
 app = FastAPI(title="DotMac Voice API", lifespan=lifespan)
@@ -286,6 +304,7 @@ from app.api.file_uploads import router as file_uploads_router  # noqa: E402
 from app.api.notifications import router as notifications_router  # noqa: E402
 from app.api.provisioning import router as provisioning_router  # noqa: E402
 from app.api.tokens import router as tokens_router  # noqa: E402
+from app.api.voice_features import router as voice_features_router  # noqa: E402
 from app.api.webhooks import router as webhooks_router  # noqa: E402
 from app.api.ws import router as ws_router  # noqa: E402
 from app.web.audit import router as web_audit_router  # noqa: E402
@@ -330,6 +349,7 @@ _include_api_router(billing_router, dependencies=[Depends(require_role("admin"))
 _include_api_router(file_uploads_router)
 _include_api_router(notifications_router, dependencies=[Depends(require_role("admin"))])
 _include_api_router(provisioning_router)
+_include_api_router(voice_features_router)
 _include_api_router(calls_router)
 _include_api_router(cdr_router)
 _include_api_router(webhooks_router)

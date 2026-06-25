@@ -4,7 +4,6 @@ import uuid
 
 import pytest
 
-from app.models.notification import Notification, NotificationType
 from app.schemas.notification import NotificationCreate
 from app.services.notification import NotificationService
 
@@ -58,7 +57,7 @@ class TestNotificationService:
         assert len(items) >= 3
 
     def test_list_unread_only(self, notification_service, db_session, person):
-        n1 = notification_service.create(
+        notification_service.create(
             NotificationCreate(
                 recipient_id=person.id,
                 title="Unread",

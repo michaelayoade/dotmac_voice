@@ -123,7 +123,9 @@ def get_celery_config() -> dict:
     config["worker_prefetch_multiplier"] = (
         _env_int("CELERY_WORKER_PREFETCH_MULTIPLIER") or 1
     )
-    config["task_default_retry_delay"] = _env_int("CELERY_TASK_DEFAULT_RETRY_DELAY") or 60
+    config["task_default_retry_delay"] = (
+        _env_int("CELERY_TASK_DEFAULT_RETRY_DELAY") or 60
+    )
     config["task_annotations"] = {
         "*": {
             "autoretry_for": (Exception,),

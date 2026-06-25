@@ -1,10 +1,8 @@
-import pytest
 from app.services.routing.fraud import (
     DialPolicy,
-    DialDecision,
-    classify_destination,
-    check_dial,
     _normalize,
+    check_dial,
+    classify_destination,
 )
 
 
@@ -176,7 +174,7 @@ class TestCheckDial:
         when the prefix matches the normalized digits, exercising the prefix step explicitly."""
         policy = DialPolicy(
             blocked_prefixes=("14155",),  # digit prefix matching normalized US number
-            allow_international=True,    # international IS allowed — so if prefix wins, reason="blocked_prefix"
+            allow_international=True,  # international IS allowed — so if prefix wins, reason="blocked_prefix"
         )
         result = check_dial("+14155550123", policy)
         # Blocked prefix (on digits) fires BEFORE international check
@@ -186,7 +184,7 @@ class TestCheckDial:
     def test_international_blocked_when_prefix_does_not_match(self):
         """International block fires when prefix does not match."""
         policy = DialPolicy(
-            blocked_prefixes=("9999",),   # does not match +1-415
+            blocked_prefixes=("9999",),  # does not match +1-415
             allow_international=False,
         )
         result = check_dial("+14155550123", policy)

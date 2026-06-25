@@ -16,10 +16,15 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "mfa_methods",
-        sa.Column("last_totp_counter", sa.Integer(), nullable=True),
-    )
+    # The regenerated initial schema (799a) already includes this column, so
+    # guard the add to keep the migration idempotent on PostgreSQL.
+    conn = op.get_bind()
+    columns = [c["name"] for c in sa.inspect(conn).get_columns("mfa_methods")]
+    if "last_totp_counter" not in columns:
+        op.add_column(
+            "mfa_methods",
+            sa.Column("last_totp_counter", sa.Integer(), nullable=True),
+        )
 
 
 def downgrade() -> None:

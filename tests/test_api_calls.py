@@ -3,7 +3,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.services.freeswitch.esl import build_originate_command, EslBridge
+from app.services.freeswitch.esl import build_originate_command
 
 INGRESS_KEY = "test-ingress-key"
 HEADERS = {"X-API-Key": INGRESS_KEY}
@@ -65,9 +65,9 @@ def fake_esl():
 @pytest.fixture()
 def dial_client(db_session, fake_esl):
     """Test client with ESL override."""
-    from app.main import app
-    from app.api.deps import get_db as api_get_db
     from app.api.calls import get_esl_bridge
+    from app.api.deps import get_db as api_get_db
+    from app.main import app
 
     def override_get_db():
         yield db_session

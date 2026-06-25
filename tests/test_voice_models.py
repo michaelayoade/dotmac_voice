@@ -1,5 +1,4 @@
-import uuid
-from app.models.voice import VoiceDomain, Extension, SyncStatus
+from app.models.voice import Extension, SyncStatus, VoiceDomain
 
 
 def test_create_voice_domain_with_extension(db_session):

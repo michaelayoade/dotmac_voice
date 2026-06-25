@@ -73,6 +73,60 @@ class TestAuthSettingsAPI:
         assert data["value_json"] is True
 
 
+class TestSecretSettingMasking:
+    """Secret settings (jwt_secret, totp_encryption_key, ...) must never be
+    returned in clear text on read; the value is masked/omitted."""
+
+    SECRET = "super-secret-signing-key-please-do-not-leak-1234567890"
+
+    def test_secret_masked_on_put_response(self, client, auth_headers):
+        resp = client.put(
+            "/settings/auth/jwt_secret",
+            json={"value_text": self.SECRET},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["is_secret"] is True
+        assert data["value_text"] == "********"
+        assert data["value_text"] != self.SECRET
+        assert data["value_json"] is None
+
+    def test_secret_masked_on_get(self, client, auth_headers):
+        client.put(
+            "/settings/auth/jwt_secret",
+            json={"value_text": self.SECRET},
+            headers=auth_headers,
+        )
+        resp = client.get("/settings/auth/jwt_secret", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["is_secret"] is True
+        assert data["value_text"] == "********"
+        assert data["value_text"] != self.SECRET
+        assert data["value_json"] is None
+
+    def test_secret_masked_in_list(self, client, auth_headers):
+        client.put(
+            "/settings/auth/jwt_secret",
+            json={"value_text": self.SECRET},
+            headers=auth_headers,
+        )
+        resp = client.get("/settings/auth", headers=auth_headers)
+        assert resp.status_code == 200
+        matches = [i for i in resp.json()["items"] if i["key"] == "jwt_secret"]
+        assert matches, "jwt_secret should appear in the listing"
+        for item in matches:
+            assert item["value_text"] != self.SECRET
+            assert item["value_json"] is None
+
+    def test_non_secret_value_not_masked(self, client, auth_headers):
+        """Regression guard: non-secret settings still return their value."""
+        resp = client.get("/settings/auth/jwt_algorithm", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["value_text"] == "HS256"
+
+
 class TestAuditSettingsAPI:
     """Tests for the /settings/audit endpoints."""
 

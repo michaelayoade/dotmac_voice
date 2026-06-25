@@ -6,9 +6,10 @@ Create Date: 2026-06-21 00:00:00.000000
 
 """
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = "007_voice_domains"
 down_revision = "006_branding_setting_domain"
@@ -19,10 +20,10 @@ depends_on = None
 def upgrade() -> None:
     conn = op.get_bind()
     inspector = sa.inspect(conn)
-    sync_status = postgresql.ENUM(
-        "pending", "synced", "drift", "error", name="syncstatus", create_type=False
+    op.execute(
+        "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'syncstatus') "
+        "THEN CREATE TYPE syncstatus AS ENUM ('pending', 'synced', 'drift', 'error'); END IF; END $$;"
     )
-    sync_status.create(conn, checkfirst=True)
     if not inspector.has_table("voice_domains"):
         op.create_table(
             "voice_domains",
@@ -31,7 +32,7 @@ def upgrade() -> None:
             sa.Column("fusionpbx_domain", sa.String(255), nullable=False),
             sa.Column(
                 "sync_status",
-                sa.Enum(
+                postgresql.ENUM(
                     "pending",
                     "synced",
                     "drift",
@@ -46,7 +47,10 @@ def upgrade() -> None:
             sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         )
         op.create_index(
-            "ix_voice_domains_customer_id", "voice_domains", ["customer_id"], unique=True
+            "ix_voice_domains_customer_id",
+            "voice_domains",
+            ["customer_id"],
+            unique=True,
         )
     if not inspector.has_table("voice_extensions"):
         op.create_table(
@@ -63,7 +67,7 @@ def upgrade() -> None:
             sa.Column("voicemail_enabled", sa.Boolean(), nullable=False),
             sa.Column(
                 "sync_status",
-                sa.Enum(
+                postgresql.ENUM(
                     "pending",
                     "synced",
                     "drift",

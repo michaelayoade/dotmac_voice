@@ -3,6 +3,7 @@
 Usage:
     gunicorn -c gunicorn.conf.py app.main:app
 """
+
 from __future__ import annotations
 
 import multiprocessing
@@ -34,7 +35,7 @@ preload_app = os.getenv("GUNICORN_PRELOAD", "false").lower() == "true"
 
 # ── Logging ──────────────────────────────────────────────
 accesslog = os.getenv("GUNICORN_ACCESSLOG", "-")  # stdout
-errorlog = os.getenv("GUNICORN_ERRORLOG", "-")    # stderr
+errorlog = os.getenv("GUNICORN_ERRORLOG", "-")  # stderr
 loglevel = os.getenv("GUNICORN_LOGLEVEL", "info")
 access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(D)s'
 

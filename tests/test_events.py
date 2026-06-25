@@ -1,9 +1,7 @@
 """Tests for ESL call event dispatch to CRM webhooks."""
-import pytest
 
-from app.models.webhook import DeliveryStatus, WebhookDelivery, WebhookEndpoint
+from app.models.webhook import DeliveryStatus, WebhookEndpoint
 from app.services.freeswitch.esl import CallEvent
-
 
 # ---------------------------------------------------------------------------
 # event_type_for mapping tests

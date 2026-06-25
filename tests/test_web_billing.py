@@ -1,9 +1,5 @@
 """Tests for billing admin web pages."""
 
-import uuid
-
-import pytest
-
 
 class TestWebBillingProducts:
     def test_list_requires_auth(self, client):

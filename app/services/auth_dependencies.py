@@ -137,6 +137,40 @@ def require_audit_auth(
     raise HTTPException(status_code=401, detail="Unauthorized")
 
 
+def resolve_active_session_person_id(db: Session, token: str) -> str | None:
+    """Decode an access token AND confirm its backing session is still valid.
+
+    Returns the person_id when the token decodes and the referenced
+    ``AuthSession`` is active (not revoked, not expired); otherwise ``None``.
+    Shared by HTTP and WebSocket auth so that logout / password reset /
+    session revocation immediately invalidate live connections instead of
+    leaving them open until JWT expiry.
+    """
+    if not token:
+        return None
+    try:
+        payload = decode_access_token(db, token)
+    except Exception:
+        return None
+    person_id = payload.get("sub")
+    session_id = payload.get("session_id")
+    if not person_id or not session_id:
+        return None
+    now = datetime.now(UTC)
+    session = db.scalars(
+        select(AuthSession)
+        .where(AuthSession.id == coerce_uuid(session_id))
+        .where(AuthSession.person_id == coerce_uuid(person_id))
+        .where(AuthSession.status == SessionStatus.active)
+        .where(AuthSession.revoked_at.is_(None))
+        .where(AuthSession.expires_at > now)
+        .limit(1)
+    ).first()
+    if not session:
+        return None
+    return str(person_id)
+
+
 def require_user_auth(
     authorization: str | None = Header(default=None),
     request: Request = None,

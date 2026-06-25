@@ -8,9 +8,7 @@ request_id_context: ContextVar[str | None] = ContextVar("request_id", default=No
 actor_id_context: ContextVar[str | None] = ContextVar("actor_id", default=None)
 
 
-def set_log_context(
-    request_id: str | None = None, actor_id: str | None = None
-) -> None:
+def set_log_context(request_id: str | None = None, actor_id: str | None = None) -> None:
     request_id_context.set(request_id)
     actor_id_context.set(actor_id)
 

@@ -30,7 +30,11 @@ def upgrade() -> None:
         sa.Column("email_verified", sa.Boolean(), nullable=False),
         sa.Column("phone", sa.String(length=40), nullable=True),
         sa.Column("date_of_birth", sa.Date(), nullable=True),
-        sa.Column("gender", sa.Enum("unknown", "female", "male", "non_binary", "other", name="gender"), nullable=True),
+        sa.Column(
+            "gender",
+            sa.Enum("unknown", "female", "male", "non_binary", "other", name="gender"),
+            nullable=True,
+        ),
         sa.Column(
             "preferred_contact_method",
             sa.Enum("email", "phone", "sms", "push", name="contactmethod"),
@@ -44,7 +48,11 @@ def upgrade() -> None:
         sa.Column("region", sa.String(length=80), nullable=True),
         sa.Column("postal_code", sa.String(length=20), nullable=True),
         sa.Column("country_code", sa.String(length=2), nullable=True),
-        sa.Column("status", sa.Enum("active", "inactive", "archived", name="personstatus"), nullable=True),
+        sa.Column(
+            "status",
+            sa.Enum("active", "inactive", "archived", name="personstatus"),
+            nullable=True,
+        ),
         sa.Column("is_active", sa.Boolean(), nullable=False),
         sa.Column("marketing_opt_in", sa.Boolean(), nullable=False),
         sa.Column("notes", sa.Text(), nullable=True),
@@ -59,7 +67,9 @@ def upgrade() -> None:
         "user_credentials",
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("person_id", sa.UUID(), nullable=False),
-        sa.Column("provider", sa.Enum("local", "sso", name="authprovider"), nullable=False),
+        sa.Column(
+            "provider", sa.Enum("local", "sso", name="authprovider"), nullable=False
+        ),
         sa.Column("username", sa.String(length=150), nullable=True),
         sa.Column("password_hash", sa.String(length=255), nullable=True),
         sa.Column("must_change_password", sa.Boolean(), nullable=False),
@@ -78,7 +88,11 @@ def upgrade() -> None:
         "mfa_methods",
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("person_id", sa.UUID(), nullable=False),
-        sa.Column("method_type", sa.Enum("totp", "sms", "email", name="mfamethodtype"), nullable=False),
+        sa.Column(
+            "method_type",
+            sa.Enum("totp", "sms", "email", name="mfamethodtype"),
+            nullable=False,
+        ),
         sa.Column("label", sa.String(length=120), nullable=True),
         sa.Column("secret", sa.String(length=255), nullable=True),
         sa.Column("phone", sa.String(length=40), nullable=True),
@@ -107,7 +121,11 @@ def upgrade() -> None:
         "sessions",
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("person_id", sa.UUID(), nullable=False),
-        sa.Column("status", sa.Enum("active", "revoked", "expired", name="sessionstatus"), nullable=False),
+        sa.Column(
+            "status",
+            sa.Enum("active", "revoked", "expired", name="sessionstatus"),
+            nullable=False,
+        ),
         sa.Column("token_hash", sa.String(length=255), nullable=False),
         sa.Column("previous_token_hash", sa.String(length=255), nullable=True),
         sa.Column("token_rotated_at", sa.DateTime(timezone=True), nullable=True),
@@ -121,7 +139,9 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("ix_sessions_token_hash", "sessions", ["token_hash"])
-    op.create_index("ix_sessions_previous_token_hash", "sessions", ["previous_token_hash"])
+    op.create_index(
+        "ix_sessions_previous_token_hash", "sessions", ["previous_token_hash"]
+    )
 
     op.create_table(
         "api_keys",
@@ -190,7 +210,11 @@ def upgrade() -> None:
         "audit_events",
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("actor_type", sa.Enum("system", "user", "api_key", "service", name="auditactortype"), nullable=False),
+        sa.Column(
+            "actor_type",
+            sa.Enum("system", "user", "api_key", "service", name="auditactortype"),
+            nullable=False,
+        ),
         sa.Column("actor_id", sa.String(length=120), nullable=True),
         sa.Column("action", sa.String(length=80), nullable=False),
         sa.Column("entity_type", sa.String(length=160), nullable=False),
@@ -209,9 +233,24 @@ def upgrade() -> None:
     op.create_table(
         "domain_settings",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("domain", sa.Enum("auth", "audit", "scheduler", "billing", "branding", name="settingdomain"), nullable=False),
+        sa.Column(
+            "domain",
+            sa.Enum(
+                "auth",
+                "audit",
+                "scheduler",
+                "billing",
+                "branding",
+                name="settingdomain",
+            ),
+            nullable=False,
+        ),
         sa.Column("key", sa.String(length=120), nullable=False),
-        sa.Column("value_type", sa.Enum("string", "integer", "boolean", "json", name="settingvaluetype"), nullable=False),
+        sa.Column(
+            "value_type",
+            sa.Enum("string", "integer", "boolean", "json", name="settingvaluetype"),
+            nullable=False,
+        ),
         sa.Column("value_text", sa.Text(), nullable=True),
         sa.Column("value_json", sa.JSON(), nullable=True),
         sa.Column("is_secret", sa.Boolean(), nullable=False),
@@ -228,7 +267,9 @@ def upgrade() -> None:
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("name", sa.String(length=160), nullable=False),
         sa.Column("task_name", sa.String(length=200), nullable=False),
-        sa.Column("schedule_type", sa.Enum("interval", name="scheduletype"), nullable=False),
+        sa.Column(
+            "schedule_type", sa.Enum("interval", name="scheduletype"), nullable=False
+        ),
         sa.Column("interval_seconds", sa.Integer(), nullable=False),
         sa.Column("args_json", sa.JSON(), nullable=True),
         sa.Column("kwargs_json", sa.JSON(), nullable=True),

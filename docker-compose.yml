@@ -83,6 +83,14 @@ services:
       redis:
         condition: service_healthy
     command: ["celery", "-A", "app.celery_app", "worker", "-l", "info"]
+    # Celery worker has no HTTP server; the image's HTTP healthcheck always
+    # fails. Ping the worker via the broker instead.
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.celery_app inspect ping -t 8 >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 12s
+      retries: 3
+      start_period: 30s
 
   beat:
     build: .
@@ -112,6 +120,10 @@ services:
       redis:
         condition: service_healthy
     command: ["celery", "-A", "app.celery_app", "beat", "-l", "info"]
+    # beat is a scheduler (not a worker; inspect-ping doesn't apply) and has no
+    # HTTP server; disable the inherited image healthcheck and rely on restart.
+    healthcheck:
+      disable: true
 
   db:
     image: postgres:16

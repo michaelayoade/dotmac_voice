@@ -1,7 +1,5 @@
 """Tests for web authentication routes."""
 
-import pytest
-
 
 class TestWebAuth:
     def test_login_page_renders(self, client):

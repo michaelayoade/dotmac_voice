@@ -86,15 +86,33 @@ class Settings:
     )
 
     # Voice settings
+    # FusionPBX has no REST provisioning API; we write directly to its PostgreSQL DB.
+    fusionpbx_db_url: str = os.getenv(
+        "FUSIONPBX_DB_URL",
+        "postgresql+psycopg://fusionpbx:fusionpbx@localhost:5432/fusionpbx",
+    )
+    # Deprecated: kept for backwards-compat, no longer used by FusionpbxClient.
     fusionpbx_api_url: str = os.getenv("FUSIONPBX_API_URL", "http://localhost:8080")
     fusionpbx_api_key: str = os.getenv("FUSIONPBX_API_KEY", "")
     esl_host: str = os.getenv("ESL_HOST", "localhost")
     esl_port: int = int(os.getenv("ESL_PORT", "8021"))
     esl_password: str = os.getenv("ESL_PASSWORD", "ClueCon")
+    # Start the background ESL->webhook consumer at app startup (disable in tests).
+    esl_consumer_enabled: bool = os.getenv("ESL_CONSUMER_ENABLED", "true").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
     edge_wss_url: str = os.getenv("EDGE_WSS_URL", "wss://sip.dotmac.io:443")
     voice_ingress_api_keys: str = os.getenv("VOICE_INGRESS_API_KEYS", "")
     voice_ingress_allowed_ips: str = os.getenv("VOICE_INGRESS_ALLOWED_IPS", "")
     token_signing_key: str = os.getenv("TOKEN_SIGNING_KEY", "dev-token-key")
+    # WebRTC ICE. TURN uses coturn's REST (static-auth-secret) ephemeral creds;
+    # TURN is omitted from the bootstrap when the secret is unset. Comma-separated URLs.
+    turn_static_auth_secret: str = os.getenv("TURN_STATIC_AUTH_SECRET", "")
+    turn_urls: str = os.getenv("TURN_URLS", "")
+    stun_urls: str = os.getenv("STUN_URLS", "stun:stun.l.google.com:19302")
+    turn_credential_ttl: int = int(os.getenv("TURN_CREDENTIAL_TTL", "3600"))
 
 
 def validate_settings(s: Settings) -> list[ConfigWarning]:
@@ -193,6 +211,51 @@ def validate_settings(s: Settings) -> list[ConfigWarning]:
         warnings.append(
             ConfigWarning(
                 "TOKEN_SIGNING_KEY uses the development default",
+                critical=True,
+            )
+        )
+
+    if production and s.esl_password == "ClueCon":  # noqa: S105
+        warnings.append(
+            ConfigWarning(
+                "ESL_PASSWORD uses the FreeSWITCH default (ClueCon)",
+                critical=True,
+            )
+        )
+    elif production and not s.esl_password:
+        warnings.append(
+            ConfigWarning(
+                "ESL_PASSWORD is not set",
+                critical=True,
+            )
+        )
+
+    refresh_cookie_secure = os.getenv("REFRESH_COOKIE_SECURE", "true").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if production and not refresh_cookie_secure:
+        warnings.append(
+            ConfigWarning(
+                "REFRESH_COOKIE_SECURE must be true in production",
+                critical=True,
+            )
+        )
+
+    if production and not s.voice_ingress_api_keys:
+        warnings.append(
+            ConfigWarning(
+                "VOICE_INGRESS_API_KEYS is not set - voice ingress endpoints will reject all requests",
+                critical=True,
+            )
+        )
+
+    if production and (not s.token_signing_key or len(s.token_signing_key) < 32):
+        warnings.append(
+            ConfigWarning(
+                "TOKEN_SIGNING_KEY must be at least 32 characters in production",
                 critical=True,
             )
         )

@@ -1,8 +1,64 @@
 """ESL bridge for FreeSWITCH event streaming."""
 
+import logging
 from dataclasses import dataclass
 
-_RELEVANT = {"CHANNEL_CREATE", "CHANNEL_ANSWER", "CHANNEL_HANGUP", "CHANNEL_HANGUP_COMPLETE"}
+logger = logging.getLogger(__name__)
+
+_RELEVANT = {
+    "CHANNEL_CREATE",
+    "CHANNEL_ANSWER",
+    "CHANNEL_HANGUP",
+    "CHANNEL_HANGUP_COMPLETE",
+}
+
+
+def reloadxml(
+    host: str, port: int, password: str
+) -> None:  # pragma: no cover - touches a real ESL socket
+    """Trigger a FreeSWITCH ``reloadxml`` over ESL so config writes go live.
+
+    Best-effort: connects to the FreeSWITCH Event Socket, issues ``reloadxml``,
+    and closes the connection. The DB is the source of truth, so callers should
+    treat any failure here as non-fatal.
+
+    Args:
+        host: ESL server host.
+        port: ESL server port.
+        password: ESL server password.
+    """
+    import greenswitch
+
+    conn = greenswitch.InboundESL(host=host, port=port, password=password)
+    conn.connect()
+    try:
+        conn.send("api reloadxml")
+    finally:
+        # greenswitch InboundESL does not expose a public close; drop the socket if present.
+        sock = getattr(conn, "sock", None)
+        if sock is not None:
+            sock.close()
+
+
+def command(
+    host: str, port: int, password: str, cmd: str
+) -> None:  # pragma: no cover - touches a real ESL socket
+    """Issue an arbitrary FreeSWITCH ``api`` command over ESL (best-effort).
+
+    Used for runtime config the DB-write + reloadxml path can't do (e.g.
+    ``callcenter_config queue load``). DB is the source of truth; failures are
+    non-fatal and should be caught by the caller.
+    """
+    import greenswitch
+
+    conn = greenswitch.InboundESL(host=host, port=port, password=password)
+    conn.connect()
+    try:
+        conn.send(f"api {cmd}")
+    finally:
+        sock = getattr(conn, "sock", None)
+        if sock is not None:
+            sock.close()
 
 
 @dataclass(frozen=True)
@@ -65,7 +121,9 @@ class EslBridge:
         """
         self._callback = callback
 
-    def connect(self) -> None:  # pragma: no cover - exercised in integration, not unit tests
+    def connect(
+        self,
+    ) -> None:  # pragma: no cover - exercised in integration, not unit tests
         """Connect to FreeSWITCH ESL server and subscribe to events."""
         import greenswitch
 
@@ -76,8 +134,16 @@ class EslBridge:
         self._conn.register_handle("*", self._dispatch)
         self._conn.send("events plain ALL")
 
-    def originate(self, command: str) -> str:  # pragma: no cover - exercised in integration, not unit tests
-        """Send an originate command over ESL and return the response.
+    def originate(
+        self, command: str
+    ) -> str:  # pragma: no cover - exercised in integration, not unit tests
+        """Open a short-lived ESL connection, send an originate command, and close.
+
+        Click-to-dial is a one-off action and ``get_esl_bridge()`` hands out a
+        fresh, *unconnected* bridge per request, so this manages its own
+        connection (connect -> send -> close) instead of relying on the
+        long-lived event connection (``self._conn``), which is not present here.
+        Mirrors :func:`reloadxml`.
 
         Args:
             command: A FreeSWITCH ESL command string (e.g. built by build_originate_command).
@@ -85,8 +151,31 @@ class EslBridge:
         Returns:
             The raw response string from FreeSWITCH ESL.
         """
-        self._conn.send(command)
-        return self._conn.get_response()
+        import greenswitch
+
+        conn = greenswitch.InboundESL(
+            host=self._host, port=self._port, password=self._password
+        )
+        conn.connect()
+        try:
+            response = conn.send(command)
+            return getattr(response, "data", "") or str(response)
+        finally:
+            sock = getattr(conn, "sock", None)
+            if sock is not None:
+                sock.close()
+
+    def is_alive(self) -> bool:  # pragma: no cover - depends on live greenswitch conn
+        """Best-effort liveness of the streaming connection.
+
+        Returns False once connected and the underlying socket reports closed;
+        defaults to True when liveness can't be determined, so the consumer
+        doesn't reconnect spuriously.
+        """
+        conn = self._conn
+        if conn is None:
+            return False
+        return bool(getattr(conn, "connected", True))
 
     def _dispatch(self, event) -> None:  # pragma: no cover
         """Dispatch normalized event to callback."""

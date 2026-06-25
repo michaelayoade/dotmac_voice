@@ -4,17 +4,25 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class DialPolicy:
-    allowed_destinations: tuple[str, ...] | None = None  # if set, ONLY these exact destinations allowed (caged scope, e.g. ("support",))
+    allowed_destinations: tuple[str, ...] | None = (
+        None  # if set, ONLY these exact destinations allowed (caged scope, e.g. ("support",))
+    )
     allow_international: bool = False
-    blocked_prefixes: tuple[str, ...] = ()               # premium-rate / blocked number prefixes; MUST be plain digit strings e.g. "234900"
-    domestic_cc: str = "234"                              # Nigeria; numbers starting with this (or local) are domestic
+    blocked_prefixes: tuple[
+        str, ...
+    ] = ()  # premium-rate / blocked number prefixes; MUST be plain digit strings e.g. "234900"
+    domestic_cc: str = (
+        "234"  # Nigeria; numbers starting with this (or local) are domestic
+    )
 
 
 @dataclass(frozen=True)
 class DialDecision:
     allowed: bool
-    reason: str          # machine code: "ok" | "not_in_allowlist" | "invalid_destination" | "blocked_prefix" | "international_blocked"
-    classification: str  # "internal" | "support" | "domestic" | "international" | "invalid"
+    reason: str  # machine code: "ok" | "not_in_allowlist" | "invalid_destination" | "blocked_prefix" | "international_blocked"
+    classification: (
+        str  # "internal" | "support" | "domestic" | "international" | "invalid"
+    )
 
 
 def _normalize(destination: str) -> tuple[str, str]:
@@ -31,9 +39,9 @@ def _normalize(destination: str) -> tuple[str, str]:
     has_plus = s.startswith("+")
     digits = re.sub(r"\D", "", s)
     if has_plus:
-        return ("intl", digits)        # digits = country code + subscriber number
+        return ("intl", digits)  # digits = country code + subscriber number
     if digits.startswith("00"):
-        return ("intl", digits[2:])    # 00 = Nigerian international access code; strip it
+        return ("intl", digits[2:])  # 00 = Nigerian international access code; strip it
     return ("national", digits)
 
 

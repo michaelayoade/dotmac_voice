@@ -411,7 +411,7 @@ class TestSendPasswordResetEmail:
                 "user@example.com",
                 "my_reset_token",
                 '<img src=x onerror="alert(1)">',
-        )
+            )
 
         assert captured_message is not None
         assert "&lt;img" in captured_message

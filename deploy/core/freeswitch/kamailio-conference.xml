@@ -1,0 +1,10 @@
+<extension name="kamailio-conference" continue="false">
+  <condition field="${network_addr}" expression="^10\.10\.10\.1$"/>
+  <condition field="destination_number" expression="^(3\d{3})$">
+    <action application="export" data="rtp_timeout_sec=120"/>
+    <action application="log" data="INFO voice-edge: conference room ${destination_number}"/>
+    <action application="answer"/>
+    <action application="sleep" data="500"/>
+    <action application="conference" data="${destination_number}@default"/>
+  </condition>
+</extension>

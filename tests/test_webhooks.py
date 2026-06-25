@@ -1,14 +1,12 @@
 """Tests for outbound webhook delivery to CRM."""
+
 import hashlib
 import hmac
-import uuid
 
-import pytest
-import respx
 import httpx
+import respx
 
 from tests.conftest import _TestSessionLocal
-
 
 INGRESS_HEADERS = {"X-API-Key": "test-ingress-key"}
 
@@ -35,7 +33,7 @@ def test_sign_body_known_vector():
 
 def test_attempt_delivery_success():
     """attempt_delivery returns True, marks delivered, and sends correct signature."""
-    from app.models.webhook import WebhookEndpoint, WebhookDelivery, DeliveryStatus
+    from app.models.webhook import DeliveryStatus, WebhookDelivery, WebhookEndpoint
     from app.services.webhooks.delivery import attempt_delivery, sign_body
 
     db = _TestSessionLocal()
@@ -90,7 +88,7 @@ def test_attempt_delivery_success():
 
 def test_attempt_delivery_failure_then_deadletter():
     """After max_attempts failures, status becomes failed with last_status_code."""
-    from app.models.webhook import WebhookEndpoint, WebhookDelivery, DeliveryStatus
+    from app.models.webhook import DeliveryStatus, WebhookDelivery, WebhookEndpoint
     from app.services.webhooks.delivery import attempt_delivery
 
     db = _TestSessionLocal()
@@ -222,3 +220,59 @@ def test_webhooks_requires_ingress(client):
         json={"url": "https://x.com", "secret": "s", "event_types": []},
     )
     assert resp.status_code == 401
+
+
+def test_sweep_reattempts_only_stuck_pending():
+    """sweep_deliveries re-attempts pending deliveries with attempts<max only —
+    skipping delivered and exhausted (maxed-out) rows."""
+    from unittest.mock import patch
+
+    from app.models.webhook import DeliveryStatus, WebhookDelivery, WebhookEndpoint
+    from app.services.webhooks import delivery as dmod
+
+    db = _TestSessionLocal()
+    try:
+        ep = WebhookEndpoint(
+            url="https://crm.example.com/wh",
+            secret="s",
+            event_types=["call.ended"],
+            active=True,
+        )
+        db.add(ep)
+        db.flush()
+        pending = WebhookDelivery(
+            endpoint_id=ep.id,
+            event_type="call.ended",
+            payload={},
+            status=DeliveryStatus.pending,
+            attempts=1,
+        )
+        delivered = WebhookDelivery(
+            endpoint_id=ep.id,
+            event_type="call.ended",
+            payload={},
+            status=DeliveryStatus.delivered,
+            attempts=1,
+        )
+        maxed = WebhookDelivery(
+            endpoint_id=ep.id,
+            event_type="call.ended",
+            payload={},
+            status=DeliveryStatus.pending,
+            attempts=5,
+        )
+        db.add_all([pending, delivered, maxed])
+        db.flush()
+
+        attempted = []
+        with patch.object(
+            dmod,
+            "attempt_delivery",
+            side_effect=lambda db, d, **kw: attempted.append(d.id) or True,
+        ):
+            n = dmod.sweep_deliveries(db, max_attempts=5)
+        assert n == 1
+        assert attempted == [pending.id]
+    finally:
+        db.rollback()
+        db.close()

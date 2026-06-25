@@ -87,7 +87,9 @@ class NotificationService:
         self.db.flush()
         return notification
 
-    def mark_read_or_404(self, notification_id: UUID, recipient_id: UUID) -> Notification:
+    def mark_read_or_404(
+        self, notification_id: UUID, recipient_id: UUID
+    ) -> Notification:
         notification = self.mark_read(notification_id, recipient_id)
         if notification is None:
             raise NotFoundError("Notification not found")

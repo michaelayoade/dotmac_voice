@@ -28,4 +28,4 @@ repos:
     hooks:
       - id: detect-secrets
         args: [--baseline, .secrets.baseline]
-        exclude: (\.env\.example|tests/|alembic/|scripts/)
+        exclude: (\.env\.example|tests/|alembic/|scripts/|poetry\.lock)

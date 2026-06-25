@@ -6,9 +6,10 @@ Create Date: 2026-06-22 00:00:00.000000
 
 """
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = "009_voice_webhooks"
 down_revision = "008_voice_cdrs"
@@ -20,10 +21,10 @@ def upgrade() -> None:
     conn = op.get_bind()
     inspector = sa.inspect(conn)
 
-    delivery_status = postgresql.ENUM(
-        "pending", "delivered", "failed", name="deliverystatus", create_type=False
+    op.execute(
+        "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'deliverystatus') "
+        "THEN CREATE TYPE deliverystatus AS ENUM ('pending', 'delivered', 'failed'); END IF; END $$;"
     )
-    delivery_status.create(conn, checkfirst=True)
 
     if not inspector.has_table("voice_webhook_endpoints"):
         op.create_table(
@@ -50,8 +51,10 @@ def upgrade() -> None:
             sa.Column("payload", sa.JSON(), nullable=False, server_default="{}"),
             sa.Column(
                 "status",
-                sa.Enum(
-                    "pending", "delivered", "failed",
+                postgresql.ENUM(
+                    "pending",
+                    "delivered",
+                    "failed",
                     name="deliverystatus",
                     create_type=False,
                 ),

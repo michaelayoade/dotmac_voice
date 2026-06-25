@@ -79,8 +79,7 @@ node_modules/
 .DS_Store
 Thumbs.db
 
-# Poetry
-poetry.lock
+# Poetry: lockfile IS committed (reproducible builds + the Docker image COPYs it)
 
 # Docker
 .docker/

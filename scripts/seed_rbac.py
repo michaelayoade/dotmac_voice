@@ -6,7 +6,6 @@ from app.db import SessionLocal
 from app.models.person import Person
 from app.models.rbac import Permission, PersonRole, Role, RolePermission
 
-
 DEFAULT_PERMISSIONS = [
     ("audit:read", "Read audit events"),
     ("auth:manage", "Manage authentication"),
@@ -125,7 +124,9 @@ def main():
             if args.admin_person_id:
                 person = db.get(Person, args.admin_person_id)
             if not person and args.admin_email:
-                person = db.query(Person).filter(Person.email == args.admin_email).first()
+                person = (
+                    db.query(Person).filter(Person.email == args.admin_email).first()
+                )
             if not person:
                 raise SystemExit("Admin person not found.")
             _ensure_person_role(db, person.id, admin_role.id)

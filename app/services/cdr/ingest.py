@@ -1,6 +1,8 @@
 """CDR ingest service — maps mod_json_cdr payload to Cdr model."""
+
 from datetime import UTC, datetime
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.voice import Cdr
@@ -34,10 +36,11 @@ def ingest_cdr(db: Session, payload: dict) -> Cdr:
     top-level dict if that key is absent.
     """
     vars = payload.get("variables", payload)
+    call_uuid = vars.get("uuid", "")
 
-    cdr = Cdr(
-        call_uuid=vars.get("uuid", ""),
-        customer_id=vars.get("variable_dotmac_subscriber_id") or vars.get("dotmac_subscriber_id"),
+    fields = dict(
+        customer_id=vars.get("variable_dotmac_subscriber_id")
+        or vars.get("dotmac_subscriber_id"),
         direction=vars.get("direction", ""),
         caller=vars.get("caller_id_number", ""),
         callee=vars.get("destination_number", ""),
@@ -47,7 +50,19 @@ def ingest_cdr(db: Session, payload: dict) -> Cdr:
         start_at=_epoch_to_dt(vars.get("start_epoch")),
         answer_at=_epoch_to_dt(vars.get("answer_epoch")),
         end_at=_epoch_to_dt(vars.get("end_epoch")),
+        recording_url=vars.get("variable_recording_file") or vars.get("recording_file"),
     )
-    db.add(cdr)
+
+    # Idempotent upsert by call_uuid: mod_json_cdr (or its retry) may deliver the
+    # same call more than once; update in place rather than creating duplicates.
+    cdr = (
+        db.scalar(select(Cdr).where(Cdr.call_uuid == call_uuid)) if call_uuid else None
+    )
+    if cdr is None:
+        cdr = Cdr(call_uuid=call_uuid, **fields)
+        db.add(cdr)
+    else:
+        for key, value in fields.items():
+            setattr(cdr, key, value)
     db.flush()
     return cdr

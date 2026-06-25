@@ -6,8 +6,9 @@ Create Date: 2026-02-16 00:00:00.000000
 
 """
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "002_billing"
 down_revision = "799a0ecebdd4"
@@ -140,8 +141,14 @@ def upgrade() -> None:
             "subscription_id", "price_id", name="uq_subscription_items_sub_price"
         ),
     )
-    op.create_index("ix_subscription_items_subscription_id", "subscription_items", ["subscription_id"])
-    op.create_index("ix_subscription_items_price_id", "subscription_items", ["price_id"])
+    op.create_index(
+        "ix_subscription_items_subscription_id",
+        "subscription_items",
+        ["subscription_id"],
+    )
+    op.create_index(
+        "ix_subscription_items_price_id", "subscription_items", ["price_id"]
+    )
 
     # Invoices
     op.create_table(
@@ -152,7 +159,9 @@ def upgrade() -> None:
         sa.Column("number", sa.String(length=80), nullable=True),
         sa.Column(
             "status",
-            sa.Enum("draft", "open", "paid", "void", "uncollectible", name="invoicestatus"),
+            sa.Enum(
+                "draft", "open", "paid", "void", "uncollectible", name="invoicestatus"
+            ),
             nullable=True,
         ),
         sa.Column("currency", sa.String(length=3), nullable=True),
@@ -201,7 +210,11 @@ def upgrade() -> None:
     )
     op.create_index("ix_invoice_items_invoice_id", "invoice_items", ["invoice_id"])
     op.create_index("ix_invoice_items_price_id", "invoice_items", ["price_id"])
-    op.create_index("ix_invoice_items_subscription_item_id", "invoice_items", ["subscription_item_id"])
+    op.create_index(
+        "ix_invoice_items_subscription_item_id",
+        "invoice_items",
+        ["subscription_item_id"],
+    )
 
     # Payment Methods
     op.create_table(
@@ -210,7 +223,9 @@ def upgrade() -> None:
         sa.Column("customer_id", sa.UUID(), nullable=False),
         sa.Column(
             "type",
-            sa.Enum("card", "bank_account", "wallet", "other", name="paymentmethodtype"),
+            sa.Enum(
+                "card", "bank_account", "wallet", "other", name="paymentmethodtype"
+            ),
             nullable=False,
         ),
         sa.Column("details", sa.JSON(), nullable=True),
@@ -222,7 +237,9 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["customer_id"], ["customers.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_payment_methods_customer_id", "payment_methods", ["customer_id"])
+    op.create_index(
+        "ix_payment_methods_customer_id", "payment_methods", ["customer_id"]
+    )
 
     # Payment Intents
     op.create_table(
@@ -257,9 +274,13 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["payment_method_id"], ["payment_methods.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_payment_intents_customer_id", "payment_intents", ["customer_id"])
+    op.create_index(
+        "ix_payment_intents_customer_id", "payment_intents", ["customer_id"]
+    )
     op.create_index("ix_payment_intents_invoice_id", "payment_intents", ["invoice_id"])
-    op.create_index("ix_payment_intents_payment_method_id", "payment_intents", ["payment_method_id"])
+    op.create_index(
+        "ix_payment_intents_payment_method_id", "payment_intents", ["payment_method_id"]
+    )
 
     # Usage Records
     op.create_table(
@@ -280,7 +301,11 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("idempotency_key", name="uq_usage_records_idempotency_key"),
     )
-    op.create_index("ix_usage_records_subscription_item_id", "usage_records", ["subscription_item_id"])
+    op.create_index(
+        "ix_usage_records_subscription_item_id",
+        "usage_records",
+        ["subscription_item_id"],
+    )
 
     # Coupons
     op.create_table(
@@ -337,7 +362,9 @@ def upgrade() -> None:
         sa.Column("feature_key", sa.String(length=120), nullable=False),
         sa.Column(
             "value_type",
-            sa.Enum("boolean", "numeric", "string", "unlimited", name="entitlementvaluetype"),
+            sa.Enum(
+                "boolean", "numeric", "string", "unlimited", name="entitlementvaluetype"
+            ),
             nullable=False,
         ),
         sa.Column("value_text", sa.Text(), nullable=True),
@@ -409,7 +436,9 @@ def downgrade() -> None:
     op.drop_table("invoices")
 
     op.drop_index("ix_subscription_items_price_id", table_name="subscription_items")
-    op.drop_index("ix_subscription_items_subscription_id", table_name="subscription_items")
+    op.drop_index(
+        "ix_subscription_items_subscription_id", table_name="subscription_items"
+    )
     op.drop_table("subscription_items")
 
     op.drop_index("ix_subscriptions_customer_id", table_name="subscriptions")

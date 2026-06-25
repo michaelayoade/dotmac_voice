@@ -4,9 +4,11 @@ Revision ID: 003_file_uploads
 Revises: 002_billing
 Create Date: 2026-02-16
 """
-from alembic import op
+
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = "003_file_uploads"
 down_revision = "002_billing"
@@ -19,11 +21,12 @@ def upgrade() -> None:
     inspector = sa.inspect(conn)
 
     if not inspector.has_table("file_uploads"):
-        # Create enum type if it doesn't exist
-        file_upload_status = postgresql.ENUM(
-            "pending", "active", "deleted", name="fileuploadstatus", create_type=False
+        # Create enum type idempotently (SQLAlchemy checkfirst is unreliable
+        # inside the single-transaction upgrade on PostgreSQL).
+        op.execute(
+            "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'fileuploadstatus') "
+            "THEN CREATE TYPE fileuploadstatus AS ENUM ('pending', 'active', 'deleted'); END IF; END $$;"
         )
-        file_upload_status.create(conn, checkfirst=True)
 
         op.create_table(
             "file_uploads",
@@ -40,7 +43,13 @@ def upgrade() -> None:
             sa.Column("entity_id", sa.String(120), nullable=True),
             sa.Column(
                 "status",
-                sa.Enum("pending", "active", "deleted", name="fileuploadstatus", create_type=False),
+                postgresql.ENUM(
+                    "pending",
+                    "active",
+                    "deleted",
+                    name="fileuploadstatus",
+                    create_type=False,
+                ),
                 server_default="active",
             ),
             sa.Column("is_active", sa.Boolean(), server_default=sa.text("true")),

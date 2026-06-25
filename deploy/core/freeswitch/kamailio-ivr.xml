@@ -1,0 +1,13 @@
+<extension name="kamailio-ivr-4000" continue="false">
+  <condition field="${network_addr}" expression="^10\.10\.10\.1$"/>
+  <condition field="destination_number" expression="^(4000)$">
+    <action application="export" data="rtp_timeout_sec=60"/>
+    <action application="log" data="INFO voice-edge: IVR 4000 entry"/>
+    <action application="answer"/>
+    <action application="sleep" data="700"/>
+    <action application="play_and_get_digits" data="1 1 3 6000 # ivr/ivr-enter_ext_pound.wav silence_stream://250 ivr_choice ^[12]$"/>
+    <action application="log" data="INFO voice-edge: IVR choice=[${ivr_choice}]"/>
+    <action application="set" data="ivr_target=${cond(${ivr_choice} == 1 ? 1002 : 3001)}"/>
+    <action application="transfer" data="${ivr_target} XML public"/>
+  </condition>
+</extension>

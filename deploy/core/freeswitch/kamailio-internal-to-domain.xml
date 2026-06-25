@@ -1,0 +1,23 @@
+<extension name="kamailio-internal-to-domain" continue="true">
+  <condition field="${network_addr}" expression="^10\.10\.10\.1$"/>
+  <condition field="destination_number" expression="^(1\d{3})$">
+    <action application="set" data="hangup_after_bridge=true"/>
+    <action application="set" data="continue_on_fail=true"/>
+    <action application="export" data="rtp_timeout_sec=30"/>
+    <action application="export" data="rtp_hold_timeout_sec=1800"/>
+    <action application="set" data="RECORD_STEREO=true"/>
+    <action application="set" data="recording_follow_transfer=true"/>
+    <action application="set" data="record_session_file=/var/lib/freeswitch/recordings/${sip_req_host}/${strftime(%Y-%m-%d)}/${uuid}.wav"/>
+    <action application="set" data="execute_on_answer=record_session ${record_session_file}"/>
+    <action application="log" data="INFO voice-edge: bridge ${destination_number} to kamailio"/>
+    <action application="bridge" data="{sip_h_X-Voice-Domain=${sip_req_host}}sofia/external/${destination_number}@10.10.10.1:5060"/>
+    <action application="answer"/>
+    <action application="sleep" data="1000"/>
+    <action application="set" data="voicemail_action=save"/>
+    <action application="set" data="voicemail_id=${destination_number}"/>
+    <action application="set" data="voicemail_profile=default"/>
+    <action application="set" data="send_to_voicemail=true"/>
+    <action application="set" data="domain_name=${sip_req_host}"/>
+    <action application="lua" data="app.lua voicemail"/>
+  </condition>
+</extension>

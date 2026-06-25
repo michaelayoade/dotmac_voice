@@ -7,7 +7,7 @@ ENV POETRY_VIRTUALENVS_CREATE=false
 ARG TARGETARCH
 ARG TAILWIND_VERSION=v3.4.17
 
-COPY pyproject.toml ./
+COPY pyproject.toml poetry.lock ./
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* \

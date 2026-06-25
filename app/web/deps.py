@@ -85,7 +85,9 @@ def require_web_auth(
         ).all()
     )
     if "admin" not in roles:
-        raise WebAuthRedirect(next_url=request.url.path)
+        # Authenticated (valid token + session + person) but lacks the admin role:
+        # this is a 403, not a redirect-to-login (which is for unauthenticated users).
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     return {
         "person_id": str(person_id),
