@@ -1,0 +1,18 @@
+# Deferred dependency CVEs (documented + tracked). All other fixable CVEs are
+# bumped in poetry.lock (cryptography/jinja2/python-dotenv/python-jose).
+#
+# starlette: fixes require a FastAPI major upgrade (FastAPI 0.111 pins starlette
+#   0.37) — tracked as a follow-up upgrade.
+CVE-2024-47874
+CVE-2025-54121
+CVE-2026-48818
+CVE-2026-48817
+CVE-2026-54283
+CVE-2026-54282
+PYSEC-2026-161
+# pip: build-time installer in the image, not a shipped runtime dependency.
+CVE-2026-3219
+CVE-2026-6357
+PYSEC-2026-196
+# pytest: dev/test-only dependency, never shipped.
+CVE-2025-71176
